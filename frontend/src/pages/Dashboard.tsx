@@ -1,4 +1,5 @@
 import React from 'react';
+import Chatbot from '../components/Chatbot.tsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, Globe, Star, Target } from 'lucide-react';
 
@@ -43,7 +44,7 @@ const Dashboard: React.FC = () => {
         <StatCard
           icon={Target}
           title="Precisión del Modelo"
-          value="94.2%"
+          value="70%"
           change="+2.1%"
           positive={true}
         />
@@ -155,6 +156,11 @@ const Dashboard: React.FC = () => {
             <Bar dataKey="discoveries" fill="#8B5CF6" />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Chatbot */}
+      <div className="mt-8">
+        <Chatbot />
       </div>
     </div>
   );

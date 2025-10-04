@@ -7,7 +7,7 @@ from typing import Dict, Any
 import joblib
 import os
 
-from app.api import analysis, dashboard
+from app.api import analysis, dashboard, chat
 from app.core.config import settings
 
 app = FastAPI(
@@ -30,6 +30,7 @@ app.add_middleware(
 # Include routers
 app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["analysis"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 
 @app.get("/")
 async def root():
