@@ -25,3 +25,4 @@ echo.
 echo 💡 Para detener los servicios, cierra las ventanas de terminal
 echo.
 pause
+

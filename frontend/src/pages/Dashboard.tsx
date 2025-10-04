@@ -182,3 +182,4 @@ const StatCard: React.FC<StatCardProps> = ({ icon: Icon, title, value, change, p
 );
 
 export default Dashboard;
+

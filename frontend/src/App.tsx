@@ -8,6 +8,7 @@ import Home from './pages/Home.tsx';
 import Analysis from './pages/Analysis.tsx';
 import Dashboard from './pages/Dashboard.tsx';
 import About from './pages/About.tsx';
+import ExoplanetMapPage from './pages/ExoplanetMapPage.tsx';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/map" element={<ExoplanetMapPage />} />
             <Route path="/about" element={<About />} />
           </Routes>
         </main>
