@@ -122,33 +122,20 @@ const Home: React.FC = () => {
                 <div className="w-20 h-20 bg-exoplanet-orange/20 rounded-full mx-auto mb-3 flex items-center justify-center">
                   <span className="text-exoplanet-orange font-bold text-lg">G</span>
                 </div>
-                <h3 className="font-semibold text-white text-sm">Greco Joseth</h3>
-                <p className="text-gray-400 text-xs">Rodriguez Gonzalez</p>
+                <h3 className="font-semibold text-white text-sm">Greco Rodriguez</h3>
+                <p className="text-gray-400 text-xs">Developer</p>
                 <p className="text-exoplanet-orange text-xs mt-1">Full-Stack Dev</p>
                 <button className="mt-2 px-2 py-1 bg-exoplanet-orange/20 hover:bg-exoplanet-orange/30 text-exoplanet-orange text-xs rounded-full transition-colors duration-200 flex items-center space-x-1 mx-auto">
                   <Download className="h-3 w-3" />
                   <span>CV</span>
                 </button>
               </div>
-              
-              <div className="text-center">
-                <div className="w-20 h-20 bg-star-yellow/20 rounded-full mx-auto mb-3 flex items-center justify-center">
-                  <span className="text-star-yellow font-bold text-lg">J</span>
-                </div>
-                <h3 className="font-semibold text-white text-sm">Juan Pablo</h3>
-                <p className="text-gray-400 text-xs">Developer</p>
-                <p className="text-star-yellow text-xs mt-1">Full-Stack Dev</p>
-                <button className="mt-2 px-2 py-1 bg-star-yellow/20 hover:bg-star-yellow/30 text-star-yellow text-xs rounded-full transition-colors duration-200 flex items-center space-x-1 mx-auto">
-                  <Download className="h-3 w-3" />
-                  <span>CV</span>
-                </button>
-              </div>
-              
+
               <div className="text-center">
                 <div className="w-20 h-20 bg-planet-green/20 rounded-full mx-auto mb-3 flex items-center justify-center">
                   <span className="text-planet-green font-bold text-lg">C</span>
                 </div>
-                <h3 className="font-semibold text-white text-sm">Carlos</h3>
+                <h3 className="font-semibold text-white text-sm">Carlos Borjas</h3>
                 <p className="text-gray-400 text-xs">Developer</p>
                 <p className="text-planet-green text-xs mt-1">Frontend</p>
                 <button className="mt-2 px-2 py-1 bg-planet-green/20 hover:bg-planet-green/30 text-planet-green text-xs rounded-full transition-colors duration-200 flex items-center space-x-1 mx-auto">
@@ -156,12 +143,25 @@ const Home: React.FC = () => {
                   <span>CV</span>
                 </button>
               </div>
-              
+
+              <div className="text-center">
+                <div className="w-20 h-20 bg-star-yellow/20 rounded-full mx-auto mb-3 flex items-center justify-center">
+                  <span className="text-star-yellow font-bold text-lg">J</span>
+                </div>
+                <h3 className="font-semibold text-white text-sm">Juan Gonzalez</h3>
+                <p className="text-gray-400 text-xs">Developer</p>
+                <p className="text-star-yellow text-xs mt-1">Full-Stack Dev</p>
+                <button className="mt-2 px-2 py-1 bg-star-yellow/20 hover:bg-star-yellow/30 text-star-yellow text-xs rounded-full transition-colors duration-200 flex items-center space-x-1 mx-auto">
+                  <Download className="h-3 w-3" />
+                  <span>CV</span>
+                </button>
+              </div>
+
               <div className="text-center">
                 <div className="w-20 h-20 bg-cosmic-purple/20 rounded-full mx-auto mb-3 flex items-center justify-center">
                   <span className="text-cosmic-purple font-bold text-lg">E</span>
                 </div>
-                <h3 className="font-semibold text-white text-sm">Evelyn</h3>
+                <h3 className="font-semibold text-white text-sm">Evelyn Villarreal</h3>
                 <p className="text-gray-400 text-xs">Developer</p>
                 <p className="text-cosmic-purple text-xs mt-1">UI/UX</p>
                 <button className="mt-2 px-2 py-1 bg-cosmic-purple/20 hover:bg-cosmic-purple/30 text-cosmic-purple text-xs rounded-full transition-colors duration-200 flex items-center space-x-1 mx-auto">
@@ -169,25 +169,13 @@ const Home: React.FC = () => {
                   <span>CV</span>
                 </button>
               </div>
-              
-              <div className="text-center">
-                <div className="w-20 h-20 bg-blue-400/20 rounded-full mx-auto mb-3 flex items-center justify-center">
-                  <span className="text-blue-400 font-bold text-lg">A</span>
-                </div>
-                <h3 className="font-semibold text-white text-sm">Arely Bernal</h3>
-                <p className="text-gray-400 text-xs">Developer</p>
-                <p className="text-blue-400 text-xs mt-1">UI/UX</p>
-                <button className="mt-2 px-2 py-1 bg-blue-400/20 hover:bg-blue-400/30 text-blue-400 text-xs rounded-full transition-colors duration-200 flex items-center space-x-1 mx-auto">
-                  <Download className="h-3 w-3" />
-                  <span>CV</span>
-                </button>
-              </div>
-              
+
+
               <div className="text-center">
                 <div className="w-20 h-20 bg-pink-400/20 rounded-full mx-auto mb-3 flex items-center justify-center">
                   <span className="text-pink-400 font-bold text-lg">L</span>
                 </div>
-                <h3 className="font-semibold text-white text-sm">Linda Margarita</h3>
+                <h3 className="font-semibold text-white text-sm">Linda Acosta</h3>
                 <p className="text-gray-400 text-xs">Developer</p>
                 <p className="text-pink-400 text-xs mt-1">Data Science</p>
                 <button className="mt-2 px-2 py-1 bg-pink-400/20 hover:bg-pink-400/30 text-pink-400 text-xs rounded-full transition-colors duration-200 flex items-center space-x-1 mx-auto">

@@ -10,6 +10,64 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# Project context helper: collect small previews of key repository files to include
+import pathlib
+
+
+def build_project_context(max_chars: int = 6000) -> str:
+    """Return a short text summary built from a few important files in the repo.
+    This is intentionally conservative (snippets only) to avoid blowing token limits.
+    Toggle via env var INCLUDE_PROJECT_CONTEXT (set to '0' to disable).
+    """
+    try:
+        if os.getenv('INCLUDE_PROJECT_CONTEXT', '1') == '0':
+            return ''
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+        candidates = [
+            'README.md',
+            'backend/app/api/analysis.py',
+            'backend/app/api/chat.py',
+            'frontend/src/pages/Exploration.tsx',
+            'frontend/src/components/ExoplanetMap3D.tsx',
+            'modelo_final/k2.csv'
+        ]
+        parts = []
+        total = 0
+        for rel in candidates:
+            if total >= max_chars:
+                break
+            path = os.path.join(repo_root, rel)
+            if not os.path.exists(path):
+                continue
+            try:
+                # For CSVs skip content but note existence and header
+                if rel.lower().endswith('.csv'):
+                    # read header line only
+                    with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+                        header = fh.readline().strip()
+                    snippet = f"FILE: {rel}\nHEADER: {header}\n"
+                else:
+                    with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+                        # read first ~80 lines or ~2000 chars
+                        text = fh.read(4000)
+                    snippet = f"FILE: {rel}\n" + '\n'.join(text.splitlines()[:40]) + '\n'
+                snippet = snippet.strip() + '\n---\n'
+                parts.append(snippet)
+                total += len(snippet)
+            except Exception:
+                continue
+
+        if not parts:
+            return ''
+
+        joined = '\n'.join(parts)
+        # Keep it within max_chars
+        if len(joined) > max_chars:
+            return joined[:max_chars]
+        return joined
+    except Exception:
+        return ''
+
 # Try to import official google-genai SDK (optional)
 try:
     import google.genai as genai
@@ -57,8 +115,13 @@ async def send_message(request: ChatRequest):
                     try:
                         # Configure client with API key from env
                         genai.client = genai.GenAI(api_key=gemini_key)
-                        # Build a single text prompt from the conversation
-                        prompt_text = "\n".join([f"{m.role}: {m.content}" for m in request.messages])
+                        # Build a single text prompt from the conversation and prepend project context
+                        convo_text = "\n".join([f"{m.role}: {m.content}" for m in request.messages])
+                        project_ctx = build_project_context()
+                        if project_ctx:
+                            prompt_text = f"SYSTEM: You are an assistant with detailed knowledge of a code repository. Use the following project summary for context (do not invent files):\n{project_ctx}\nCONVERSATION:\n{convo_text}"
+                        else:
+                            prompt_text = convo_text
                         resp = genai.client.models.generate_content(
                             model=request.model or "gemini-2.5-flash",
                             contents=prompt_text,
@@ -70,7 +133,12 @@ async def send_message(request: ChatRequest):
                         # fall through to REST fallback
 
                 # REST fallback for Google generativelanguage endpoint
-                prompt_text = "\n".join([f"{m.role}: {m.content}" for m in request.messages])
+                convo_text = "\n".join([f"{m.role}: {m.content}" for m in request.messages])
+                project_ctx = build_project_context()
+                if project_ctx:
+                    prompt_text = f"SYSTEM: You are an assistant with detailed knowledge of a code repository. Use the following project summary for context (do not invent files):\n{project_ctx}\nCONVERSATION:\n{convo_text}"
+                else:
+                    prompt_text = convo_text
 
                 # Prepare a set of payload variants to try.
                 # For generateContent the API expects `contents[]` where each Content is an object
@@ -179,7 +247,13 @@ async def send_message(request: ChatRequest):
                 return ChatResponse(reply=reply, raw=data)
 
             # Fallback: generic OpenAI-like API (Bearer token expected)
-            payload = {"messages": [m.dict() for m in request.messages]}
+            # Generic fallback payload: include a system message with project context if available
+            project_ctx = build_project_context()
+            messages = [m.dict() for m in request.messages]
+            if project_ctx:
+                # prepend a system message
+                messages.insert(0, {"role": "system", "content": f"Project context (summary):\n{project_ctx}"})
+            payload = {"messages": messages}
             if request.model:
                 payload["model"] = request.model
 

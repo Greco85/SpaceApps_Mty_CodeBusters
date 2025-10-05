@@ -2,17 +2,19 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 interface Exoplanet {
-  id: number;
+  id: string;
   name: string;
-  classification: string;
+  classification: 'exoplanet' | 'candidate' | 'false_positive';
   coordinates: {
     rightAscension: number;
     declination: number;
   };
   radius: number;
   orbitalPeriod: number;
-  discoveryYear: number;
-  mission: string;
+  discoveryYear?: number;
+  mission?: string;
+  // Some callers include this field
+  stellarTemperature?: number;
 }
 
 interface ExoplanetMap3DProps {

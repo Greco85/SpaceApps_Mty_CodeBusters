@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import SimpleMarkdown from './SimpleMarkdown';
 
 type Message = { role: 'user' | 'assistant'; content: string };
 
@@ -47,7 +48,7 @@ const Chatbot: React.FC = () => {
         {messages.map((m, i) => (
           <div key={i} className={`mb-2 ${m.role === 'user' ? 'text-right' : 'text-left'}`}>
             <div className={`inline-block px-3 py-2 rounded ${m.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-200'}`}>
-              {m.content}
+              <SimpleMarkdown content={m.content} />
             </div>
           </div>
         ))}
