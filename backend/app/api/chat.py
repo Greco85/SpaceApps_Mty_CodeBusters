@@ -40,8 +40,8 @@ class ChatResponse(BaseModel):
 async def send_message(request: ChatRequest):
     """Proxy endpoint to send messages to Gemini (configurable). If GEMINI_API_URL/GEMINI_API_KEY are not set, returns a dummy reply."""
     # Prefer settings from app.core.config (reads .env) but allow environment override
-    gemini_url = os.environ.get("GEMINI_API_URL") or settings.gemini_api_url
-    gemini_key = os.environ.get("GEMINI_API_KEY") or settings.gemini_api_key
+    gemini_url = os.environ.get("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent") or settings.gemini_api_url
+    gemini_key = os.environ.get("AIzaSyANxRWtZKccr4BmCO-TBFcEbmCnykiweSM") or settings.gemini_api_key
 
     # Clean values: remove surrounding whitespace and matching quotes if present
     def _clean_val(v: Optional[str]) -> Optional[str]:
