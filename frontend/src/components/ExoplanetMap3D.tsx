@@ -58,36 +58,45 @@ const ExoplanetMap3D: React.FC<ExoplanetMap3DProps> = ({
 
   // Create exoplanet mesh
   const createExoplanetMesh = (exoplanet: Exoplanet) => {
-    const size = Math.max(2, Math.min(8, exoplanet.radius * 2)); // Hacer los puntos más grandes
+    const size = 5; // MUY GRANDE para que se vea
     let color = 0x6B7280; // Default gray
     
     switch (exoplanet.classification) {
       case 'exoplanet':
-        color = 0x10B981; // Green
+        color = 0x00FF00; // Bright Green
         break;
       case 'candidate':
-        color = 0xFDE047; // Yellow
+        color = 0xFFAA00; // Bright Orange
         break;
       case 'false_positive':
-        color = 0xEF4444; // Red
+        color = 0xFF0000; // Bright Red
         break;
     }
     
     const geometry = new THREE.SphereGeometry(size, 16, 16);
-    const material = new THREE.MeshLambertMaterial({ 
+    const material = new THREE.MeshBasicMaterial({ 
       color,
-      emissive: color,
-      emissiveIntensity: 0.3 // Más brillante
+      transparent: false,
+      opacity: 1.0
     });
     
     const mesh = new THREE.Mesh(geometry, material);
     
-    // Position the exoplanet
-    const position = convertTo3DPosition(
-      exoplanet.coordinates.rightAscension,
-      exoplanet.coordinates.declination
-    );
-    mesh.position.copy(position);
+    // Position the exoplanet - DISTRIBUCIÓN MÁS AMPLIA
+    const ra = exoplanet.coordinates.rightAscension || 0;
+    const dec = exoplanet.coordinates.declination || 0;
+    
+    // Usar el índice para distribuir mejor los puntos
+    const index = (mesh as any).exoplanetIndex || 0;
+    const radius = 40 + (index * 2); // Radio variable
+    
+    // Posiciones distribuidas en esfera
+    const x = Math.cos(ra * Math.PI / 180) * Math.cos(dec * Math.PI / 180) * radius;
+    const y = Math.sin(dec * Math.PI / 180) * radius;
+    const z = Math.sin(ra * Math.PI / 180) * Math.cos(dec * Math.PI / 180) * radius;
+    
+    mesh.position.set(x, y, z);
+    console.log(`Posicionando ${exoplanet.name}: (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
     
     // Store exoplanet data
     (mesh as any).exoplanetData = exoplanet;
@@ -163,7 +172,7 @@ const ExoplanetMap3D: React.FC<ExoplanetMap3DProps> = ({
       0.1,
       1000
     );
-    camera.position.set(0, 0, 200);
+    camera.position.set(0, 0, 50); // MUCHO MÁS CERCA
     cameraRef.current = camera;
 
     // Renderer setup
@@ -361,20 +370,40 @@ const ExoplanetMap3D: React.FC<ExoplanetMap3DProps> = ({
 
   // Update exoplanets when data changes
   useEffect(() => {
-    if (!sceneRef.current || !exoplanetGroupRef.current) return;
+    console.log('ExoplanetMap3D: Actualizando exoplanetas', exoplanets.length, 'exoplanetas recibidos');
+    console.log('ExoplanetMap3D: Clasificación seleccionada:', selectedClassification);
+    
+    if (!sceneRef.current || !exoplanetGroupRef.current) {
+      console.log('ExoplanetMap3D: Scene o exoplanetGroup no están listos');
+      return;
+    }
 
     // Clear existing exoplanets
     exoplanetGroupRef.current.clear();
     exoplanetMeshesRef.current = [];
 
-    // Add new exoplanets
-    exoplanets.forEach(exoplanet => {
-      if (selectedClassification === 'all' || exoplanet.classification === selectedClassification) {
-        const mesh = createExoplanetMesh(exoplanet);
-        exoplanetGroupRef.current!.add(mesh);
-        exoplanetMeshesRef.current.push(mesh);
-      }
+    // Add new exoplanets - MOSTRAR TODOS SIN FILTRO ADICIONAL
+    let addedCount = 0;
+    console.log('ExoplanetMap3D: Procesando', exoplanets.length, 'exoplanetas');
+    exoplanets.forEach((exoplanet, index) => {
+      console.log(`Exoplaneta ${index}:`, exoplanet.name, exoplanet.classification, exoplanet.coordinates);
+      const mesh = createExoplanetMesh(exoplanet);
+      (mesh as any).exoplanetIndex = index; // Pasar el índice
+      exoplanetGroupRef.current!.add(mesh);
+      exoplanetMeshesRef.current.push(mesh);
+      addedCount++;
     });
+    
+    // AGREGAR UN PUNTO DE PRUEBA FIJO EN EL CENTRO
+    const testGeometry = new THREE.SphereGeometry(8, 16, 16);
+    const testMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: false });
+    const testMesh = new THREE.Mesh(testGeometry, testMaterial);
+    testMesh.position.set(0, 0, 0); // CENTRO
+    exoplanetGroupRef.current!.add(testMesh);
+    exoplanetMeshesRef.current.push(testMesh);
+    addedCount++;
+    
+    console.log('ExoplanetMap3D: Agregados', addedCount, 'exoplanetas al mapa 3D (incluyendo punto de prueba)');
   }, [exoplanets, selectedClassification]);
 
 

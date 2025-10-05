@@ -99,8 +99,9 @@ const Exploration: React.FC = () => {
   const loadExoplanetData = async () => {
     try {
       console.log('Cargando datos de exoplanetas desde MongoDB...');
-      const exoplanetData = await exoplanetService.getExoplanets('all', 1000);
+      const exoplanetData = await exoplanetService.getExoplanets('all', 10000); // SIN LÍMITE
       console.log('Datos cargados:', exoplanetData.length, 'exoplanetas');
+      console.log('Primer exoplaneta:', exoplanetData[0]);
       
       setExoplanets(exoplanetData);
       setFilteredExoplanets(exoplanetData);
@@ -139,10 +140,14 @@ const Exploration: React.FC = () => {
 
   // Filter exoplanets based on classification
   useEffect(() => {
+    console.log('Filtrado: clasificación seleccionada:', selectedClassification, 'total exoplanetas:', exoplanets.length);
     if (selectedClassification === 'all') {
       setFilteredExoplanets(exoplanets);
+      console.log('Mostrando TODOS los exoplanetas:', exoplanets.length);
     } else {
-      setFilteredExoplanets(exoplanets.filter(ep => ep.classification === selectedClassification));
+      const filtered = exoplanets.filter(ep => ep.classification === selectedClassification);
+      setFilteredExoplanets(filtered);
+      console.log('Filtrados por', selectedClassification, ':', filtered.length);
     }
   }, [selectedClassification, exoplanets]);
 

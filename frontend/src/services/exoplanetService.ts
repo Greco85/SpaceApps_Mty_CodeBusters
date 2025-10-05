@@ -55,7 +55,24 @@ class ExoplanetService {
       limit: limit.toString(),
     });
     
-    return this.makeRequest<ExoplanetData[]>(`/api/v1/exoplanets?${params}`);
+    const url = `${API_BASE_URL}/api/v1/exoplanets?${params}`;
+    console.log('ExoplanetService: Llamando a:', url);
+    
+    try {
+      const response = await fetch(url);
+      console.log('ExoplanetService: Response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('ExoplanetService: Datos recibidos:', data.length, 'exoplanetas');
+      return data;
+    } catch (error) {
+      console.error('ExoplanetService: Error:', error);
+      throw error;
+    }
   }
 
   async getExoplanetStats(): Promise<ExoplanetStats> {
