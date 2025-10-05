@@ -296,41 +296,35 @@ const Exploration: React.FC = () => {
     }
   };
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
     if (!selectedModel) return alert('Selecciona un modelo primero');
     
-    // Crear CSV de plantilla basado en el modelo seleccionado
-    let csvContent = '';
-    let filename = '';
-    
-    if (selectedModel === 'tess') {
-      filename = 'template_tess.csv';
-      csvContent = 'name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature\n';
-      csvContent += 'TOI-1234,15.5,3.2,0.0015,1.2,1.1,5800\n';
-    } else if (selectedModel === 'kepler') {
-      filename = 'template_kepler.csv';
-      csvContent = 'name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature\n';
-      csvContent += 'Kepler-1234,25.8,4.1,0.0023,0.9,0.8,5200\n';
-    } else if (selectedModel === 'k2') {
-      filename = 'template_k2.csv';
-      csvContent = 'name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature\n';
-      csvContent += 'K2-1234,12.3,2.8,0.0018,1.1,1.0,5600\n';
-    } else {
-      filename = 'template_generic.csv';
-      csvContent = 'name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature\n';
-      csvContent += 'Exoplanet-001,10.0,2.0,0.002,1.0,1.0,5800\n';
+    try {
+      // Descargar plantilla específica desde el backend
+      const response = await fetch(`http://localhost:8000/api/v1/analysis/template/${selectedModel}`);
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
+      // Obtener el contenido del CSV
+      const csvContent = await response.text();
+      
+      // Crear y descargar archivo
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `template_${selectedModel}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (error) {
+      console.error('Error descargando plantilla:', error);
+      alert('Error descargando plantilla. Intenta de nuevo.');
     }
-    
-    // Crear y descargar archivo
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   const nextStep = () => {
