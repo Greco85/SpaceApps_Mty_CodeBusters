@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     # ML Models
     model_path: str = "ml_models/trained_models/"
     data_path: str = "data/processed/"
+    # Gemini / Generative AI
+    gemini_api_key: Optional[str] = None
+    gemini_api_url: Optional[str] = None
+    # If GEMINI_API_URL is not provided, GEMINI_MODEL can be used to build a default v1beta URL
+    gemini_model: Optional[str] = None
     
     # CORS
     allowed_origins: list = ["http://localhost:3000", "http://127.0.0.1:3000"]

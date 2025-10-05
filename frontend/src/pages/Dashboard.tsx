@@ -1,8 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
+import Chatbot from '../components/Chatbot.tsx';
+import Planet3D from '../components/Planet3D.tsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, Globe, Star, Target } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
+  const [sampleRows, setSampleRows] = useState<any[] | null>(null);
+  const [simResult, setSimResult] = useState<any | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
   // Datos de ejemplo - reemplazar con datos reales de la API
   const modelPerformance = [
     { metric: 'Precisión', value: 94.2 },
@@ -43,7 +48,7 @@ const Dashboard: React.FC = () => {
         <StatCard
           icon={Target}
           title="Precisión del Modelo"
-          value="94.2%"
+          value="70%"
           change="+2.1%"
           positive={true}
         />
@@ -156,6 +161,86 @@ const Dashboard: React.FC = () => {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Chatbot */}
+      <div className="mt-8">
+        <Chatbot />
+      </div>
+
+      {/* Quick CSV simulation test */}
+      <div className="mt-8">
+        <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6">
+          <h3 className="text-xl font-semibold mb-3">Prueba de simulación (CSV de repo)</h3>
+          <div className="flex items-center space-x-3 mb-4">
+            <button
+              className="px-4 py-2 bg-blue-600 text-white rounded"
+              onClick={async () => {
+                setIsSimulating(true);
+                try {
+                  // load sample rows
+                  const res = await fetch('/api/v1/analysis/sample');
+                  if (!res.ok) throw new Error('No se pudo cargar sample');
+                  const json = await res.json();
+                  const rows = json.rows || [];
+                  setSampleRows(rows);
+                  if (rows.length > 0) {
+                    // simulate using first row
+                    const r = rows[0];
+                    const payload = {
+                      orbital_period: Number(r.orbital_period || r.period || 0),
+                      transit_duration: Number(r.transit_duration || r.duration || 0),
+                      transit_depth: Number(r.transit_depth || r.depth || 0),
+                      stellar_radius: Number(r.stellar_radius || r.radius || 1.0),
+                    };
+                    const p = await fetch('/api/v1/analysis/predict', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(payload)
+                    });
+                    if (!p.ok) {
+                      const txt = await p.text();
+                      throw new Error(`Predict failed: ${p.status} ${txt}`);
+                    }
+                    const pj = await p.json();
+                    setSimResult({
+                      prediction: pj.prediction,
+                      confidence: pj.confidence,
+                      features: {
+                        orbital_period: pj.features_analyzed?.orbital_period || payload.orbital_period,
+                        transit_duration: pj.features_analyzed?.transit_duration || payload.transit_duration,
+                        transit_depth: pj.features_analyzed?.transit_depth || payload.transit_depth,
+                        stellar_radius: pj.features_analyzed?.stellar_radius || payload.stellar_radius,
+                      }
+                    });
+                  } else {
+                    alert('No hay filas en el CSV de ejemplo');
+                  }
+                } catch (err: any) {
+                  alert('Error simulando: ' + err.message);
+                } finally {
+                  setIsSimulating(false);
+                }
+              }}
+              disabled={isSimulating}
+            >
+              {isSimulating ? 'Simulando...' : 'Simular primera fila del CSV'}
+            </button>
+            <div className="text-sm text-gray-400">{sampleRows ? `${sampleRows.length} filas cargadas` : ''}</div>
+          </div>
+
+          {simResult && (
+            <div>
+              <h4 className="text-lg font-medium mb-2">Resultado de la simulación</h4>
+              <div className="mb-4">Predicción: <strong>{simResult.prediction}</strong> — Confianza: {(simResult.confidence*100 || 0).toFixed(1)}%</div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-transparent p-2 rounded">
+                  <Planet3D radius={Math.max(6, Math.sqrt(Math.abs(simResult.features.transit_depth || 0.01)) * 60)} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
@@ -182,4 +267,5 @@ const StatCard: React.FC<StatCardProps> = ({ icon: Icon, title, value, change, p
 );
 
 export default Dashboard;
+
 
