@@ -109,9 +109,13 @@ class CSVExoplanetMapper:
         try:
             # Leer CSV, saltando comentarios
             df = pd.read_csv(file_path, comment='#')
+            logger.info(f"CSV leído: {df.shape[0]} filas, {df.shape[1]} columnas")
+            logger.info(f"Columnas detectadas: {list(df.columns)}")
             
             if mission_type is None:
                 mission_type = self.detect_mission_type(df)
+            
+            logger.info(f"Tipo de misión detectado: {mission_type}")
             
             # Verificar si el archivo tiene columnas genéricas (como plantillas)
             columns = set([col.lower() for col in df.columns])
@@ -172,6 +176,7 @@ class CSVExoplanetMapper:
                 stellar_temp = self._safe_get(row, mapping['stellarTemperature'])
             
             if not name or pd.isna(name):
+                logger.warning(f"Fila rechazada: nombre inválido o vacío - '{name}'")
                 return None
             
             # Generar ID único
