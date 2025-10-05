@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Upload, FileText, BarChart3, AlertCircle, Target, Globe, Star, TrendingUp, Brain, GraduationCap, Zap, Compass, Search } from 'lucide-react';
+import { Upload, FileText, BarChart3, AlertCircle, Target, Globe, Star, TrendingUp, Zap, Compass, Search, HelpCircle, X, MessageCircle, Send, Minimize2, Bot, Sparkles } from 'lucide-react';
 import Chatbot from '../components/Chatbot.tsx';
 
 // Fix for default markers
@@ -87,8 +88,13 @@ const Exploration: React.FC = () => {
   const [selectedExoplanet, setSelectedExoplanet] = useState<ExoplanetData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [activeTab, setActiveTab] = useState<'expert' | 'student'>('expert');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', content: string}>>([]);
+  const [currentMessage, setCurrentMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Load exoplanet data from CSV
   useEffect(() => {
@@ -96,6 +102,25 @@ const Exploration: React.FC = () => {
     // Ensure page starts at top
     window.scrollTo(0, 0);
   }, []);
+
+  // Disable body scroll when modal is open
+  useEffect(() => {
+    if (isHelpModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+
+    // Cleanup on unmount
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isHelpModalOpen]);
+
+  // Auto scroll to bottom when new messages arrive
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, isLoading]);
 
   const loadExoplanetData = async () => {
     try {
@@ -206,112 +231,140 @@ const Exploration: React.FC = () => {
     }
   };
 
+  const handleSendMessage = async () => {
+    if (!currentMessage.trim()) return;
+    
+    const userMessage = { role: 'user' as const, content: currentMessage };
+    setChatMessages(prev => [...prev, userMessage]);
+    setCurrentMessage('');
+    setIsLoading(true);
+
+    try {
+      const response = await axios.post('/api/v1/chat/message', {
+        messages: [...chatMessages, userMessage],
+      });
+
+      const botReply = response.data?.reply || 'Sin respuesta';
+      const botMessage = { role: 'assistant' as const, content: botReply };
+      setChatMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      const errorMessage = { role: 'assistant' as const, content: 'Error: no se pudo conectar al servidor.' };
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const stats = getStatistics();
 
   return (
     <div className="min-h-screen bg-space-dark text-white">
       <div className="container mx-auto px-4 py-6 pt-24">
-        <h1 className="text-4xl font-space font-bold mb-6 text-center">
-          Exploración de Exoplanetas
-        </h1>
-
-        {/* Features Section */}
-        <section className="py-12 mb-12">
-          <div className="max-w-6xl mx-auto">
-            <h2 className="text-3xl font-space font-bold text-center mb-12">
-              Características del Sistema
-            </h2>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6 hover:border-exoplanet-orange/50 transition-colors duration-200">
-                <Zap className="h-12 w-12 text-exoplanet-orange mb-4" />
-                <h3 className="text-xl font-semibold mb-2">IA Avanzada</h3>
-                <p className="text-gray-300">Modelos de machine learning entrenados con datos reales de la NASA</p>
-              </div>
-              <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6 hover:border-exoplanet-orange/50 transition-colors duration-200">
-                <Compass className="h-12 w-12 text-exoplanet-orange mb-4" />
-                <h3 className="text-xl font-semibold mb-2">Exploración Interactiva</h3>
-                <p className="text-gray-300">Mapa unificado con análisis, estadísticas y chatbot integrado</p>
-              </div>
-              <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6 hover:border-exoplanet-orange/50 transition-colors duration-200">
-                <Search className="h-12 w-12 text-exoplanet-orange mb-4" />
-                <h3 className="text-xl font-semibold mb-2">Datos Auténticos</h3>
-                <p className="text-gray-300">Basado en misiones reales: Kepler, K2 y TESS</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* How it Works Section */}
-        <section className="py-12 mb-12">
-          <div className="max-w-4xl mx-auto">
-            <h2 className="text-3xl font-space font-bold text-center mb-12">
-              ¿Cómo Funciona?
-            </h2>
-            <div className="space-y-8">
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-exoplanet-orange text-white rounded-full flex items-center justify-center font-bold text-lg">
-                  1
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold mb-2">Carga de Datos</h3>
-                  <p className="text-gray-300">Sube archivos CSV con datos de curvas de luz estelar o utiliza nuestros datasets pre-cargados</p>
-                </div>
-              </div>
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-exoplanet-orange text-white rounded-full flex items-center justify-center font-bold text-lg">
-                  2
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold mb-2">Procesamiento IA</h3>
-                  <p className="text-gray-300">Nuestro modelo analiza patrones en los datos para identificar tránsitos planetarios</p>
-                </div>
-              </div>
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-exoplanet-orange text-white rounded-full flex items-center justify-center font-bold text-lg">
-                  3
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold mb-2">Resultados</h3>
-                  <p className="text-gray-300">Recibe clasificaciones detalladas: exoplaneta confirmado, candidato o falso positivo</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Tab Navigation */}
-        <div className="flex justify-center mb-6">
-          <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-1 flex">
-            <button
-              onClick={() => {
-                setActiveTab('expert');
-                window.scrollTo(0, 0);
-              }}
-              className={`flex items-center space-x-2 px-6 py-3 rounded-lg transition-all duration-200 ${
-                activeTab === 'expert'
-                  ? 'bg-exoplanet-orange text-white shadow-lg'
-                  : 'text-gray-300 hover:text-white hover:bg-space-blue/30'
-              }`}
-            >
-              <Brain className="h-5 w-5" />
-              <span>Vista Experto</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('student');
-                window.scrollTo(0, 0);
-              }}
-              className={`flex items-center space-x-2 px-6 py-3 rounded-lg transition-all duration-200 ${
-                activeTab === 'student'
-                  ? 'bg-exoplanet-orange text-white shadow-lg'
-                  : 'text-gray-300 hover:text-white hover:bg-space-blue/30'
-              }`}
-            >
-              <GraduationCap className="h-5 w-5" />
-              <span>Vista Estudiante</span>
-            </button>
-          </div>
+        <div className="flex items-center justify-center space-x-4 mb-6">
+          <h1 className="text-4xl font-space font-bold text-center">
+            Exploración de Exoplanetas
+          </h1>
+          <button
+            onClick={() => setIsHelpModalOpen(true)}
+            className="bg-exoplanet-orange hover:bg-orange-600 text-white p-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-110"
+            title="¿Cómo funciona el sistema?"
+          >
+            <HelpCircle className="h-6 w-6" />
+          </button>
         </div>
+
+        {/* Help Modal */}
+        {isHelpModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="bg-space-dark border border-space-blue/30 rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-6 border-b border-space-blue/30">
+                <h2 className="text-2xl font-space font-bold text-white">
+                  ¿Cómo Funciona el Sistema?
+                </h2>
+                <button
+                  onClick={() => setIsHelpModalOpen(false)}
+                  className="text-gray-400 hover:text-white transition-colors duration-200"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 space-y-8">
+                {/* Features Section */}
+                <section>
+                  <h3 className="text-xl font-semibold mb-4 text-exoplanet-orange">
+                    Características del Sistema
+                  </h3>
+                  <div className="grid md:grid-cols-3 gap-6">
+                    <div className="bg-space-dark/50 border border-space-blue/20 rounded-lg p-4">
+                      <Zap className="h-8 w-8 text-exoplanet-orange mb-3" />
+                      <h4 className="text-lg font-semibold mb-2">IA Avanzada</h4>
+                      <p className="text-gray-300 text-sm">Modelos de machine learning entrenados con datos reales de la NASA</p>
+                    </div>
+                    <div className="bg-space-dark/50 border border-space-blue/20 rounded-lg p-4">
+                      <Compass className="h-8 w-8 text-exoplanet-orange mb-3" />
+                      <h4 className="text-lg font-semibold mb-2">Exploración Interactiva</h4>
+                      <p className="text-gray-300 text-sm">Mapa unificado con análisis, estadísticas y chatbot integrado</p>
+                    </div>
+                    <div className="bg-space-dark/50 border border-space-blue/20 rounded-lg p-4">
+                      <Search className="h-8 w-8 text-exoplanet-orange mb-3" />
+                      <h4 className="text-lg font-semibold mb-2">Datos Auténticos</h4>
+                      <p className="text-gray-300 text-sm">Basado en misiones reales: Kepler, K2 y TESS</p>
+                    </div>
+                  </div>
+                </section>
+
+                {/* How it Works Section */}
+                <section>
+                  <h3 className="text-xl font-semibold mb-4 text-exoplanet-orange">
+                    ¿Cómo Funciona?
+                  </h3>
+                  <div className="space-y-6">
+                    <div className="flex items-start space-x-4">
+                      <div className="flex-shrink-0 w-10 h-10 bg-exoplanet-orange text-white rounded-full flex items-center justify-center font-bold">
+                        1
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-semibold mb-1">Carga de Datos</h4>
+                        <p className="text-gray-300 text-sm">Sube archivos CSV con datos de curvas de luz estelar o utiliza nuestros datasets pre-cargados</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-4">
+                      <div className="flex-shrink-0 w-10 h-10 bg-exoplanet-orange text-white rounded-full flex items-center justify-center font-bold">
+                        2
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-semibold mb-1">Procesamiento IA</h4>
+                        <p className="text-gray-300 text-sm">Nuestro modelo analiza patrones en los datos para identificar tránsitos planetarios</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-4">
+                      <div className="flex-shrink-0 w-10 h-10 bg-exoplanet-orange text-white rounded-full flex items-center justify-center font-bold">
+                        3
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-semibold mb-1">Resultados</h4>
+                        <p className="text-gray-300 text-sm">Recibe clasificaciones detalladas: exoplaneta confirmado, candidato o falso positivo</p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-6 border-t border-space-blue/30">
+                <button
+                  onClick={() => setIsHelpModalOpen(false)}
+                  className="w-full bg-exoplanet-orange hover:bg-orange-600 text-white py-2 px-4 rounded-lg transition-colors duration-200"
+                >
+                  Entendido
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Map Section */}
@@ -378,56 +431,33 @@ const Exploration: React.FC = () => {
             {/* Statistics */}
             <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6">
               <h3 className="text-xl font-semibold mb-4">
-                {activeTab === 'expert' ? 'Estadísticas del Modelo' : 'Datos Interesantes'}
+                Estadísticas del Modelo
               </h3>
               
-              {activeTab === 'expert' ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-exoplanet-orange">{stats.total}</div>
-                      <div className="text-sm text-gray-400">Total Analizado</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-green-400">{stats.exoplanets}</div>
-                      <div className="text-sm text-gray-400">Confirmados</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-yellow-400">{stats.candidates}</div>
-                      <div className="text-sm text-gray-400">Candidatos</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-red-400">{stats.falsePositives}</div>
-                      <div className="text-sm text-gray-400">Falsos Positivos</div>
-                    </div>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-exoplanet-orange">{stats.total}</div>
+                    <div className="text-sm text-gray-400">Total Analizado</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-bold text-exoplanet-orange">{stats.precision}%</div>
-                    <div className="text-sm text-gray-400">Precisión del Modelo</div>
+                    <div className="text-2xl font-bold text-green-400">{stats.exoplanets}</div>
+                    <div className="text-sm text-gray-400">Confirmados</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-yellow-400">{stats.candidates}</div>
+                    <div className="text-sm text-gray-400">Candidatos</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-red-400">{stats.falsePositives}</div>
+                    <div className="text-sm text-gray-400">Falsos Positivos</div>
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="bg-space-blue/20 rounded-lg p-4">
-                    <h4 className="font-semibold text-white mb-2">Planetas Confirmados</h4>
-                    <p className="text-gray-300 text-sm">
-                      {stats.exoplanets} exoplanetas han sido confirmados por científicos
-                    </p>
-                  </div>
-                  <div className="bg-star-yellow/20 rounded-lg p-4">
-                    <h4 className="font-semibold text-white mb-2">Candidatos</h4>
-                    <p className="text-gray-300 text-sm">
-                      {stats.candidates} candidatos esperan confirmación
-                    </p>
-                  </div>
-                  <div className="bg-planet-green/20 rounded-lg p-4">
-                    <h4 className="font-semibold text-white mb-2">IA Precisa</h4>
-                    <p className="text-gray-300 text-sm">
-                      Nuestra IA tiene {stats.precision}% de precisión
-                    </p>
-                  </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold text-exoplanet-orange">{stats.precision}%</div>
+                  <div className="text-sm text-gray-400">Precisión del Modelo</div>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Analysis Section */}
@@ -481,13 +511,6 @@ const Exploration: React.FC = () => {
               </div>
             </div>
 
-            {/* Chatbot */}
-            <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6">
-              <h3 className="text-xl font-semibold mb-4">
-                {activeTab === 'student' ? 'Pregúntame sobre Exoplanetas' : 'Asistente de IA'}
-              </h3>
-              <Chatbot />
-            </div>
           </div>
         </div>
 
@@ -529,6 +552,96 @@ const Exploration: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Floating Chatbot */}
+        <div className="fixed bottom-6 right-6 z-40">
+          {!isChatbotOpen ? (
+            // Chat Button
+            <button
+              onClick={() => setIsChatbotOpen(true)}
+              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white p-4 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-110"
+              title="Gemini AI Assistant"
+            >
+              <Bot className="h-6 w-6" />
+            </button>
+          ) : (
+            // Chat Window
+            <div className="bg-space-dark border border-space-blue/30 rounded-lg shadow-2xl w-[420px] h-[600px] flex flex-col">
+              {/* Chat Header */}
+              <div className="flex items-center justify-between p-4 border-b border-space-blue/30 bg-space-dark/80">
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2">
+                    <Bot className="h-5 w-5 text-blue-400" />
+                    <Sparkles className="h-4 w-4 text-yellow-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold">Gemini AI</h3>
+                    <p className="text-xs text-gray-400">Asistente de Exoplanetas</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsChatbotOpen(false)}
+                  className="text-gray-400 hover:text-white transition-colors duration-200"
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Chat Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {chatMessages.map((message, index) => (
+                  <div
+                    key={index}
+                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[80%] p-3 rounded-lg ${
+                        message.role === 'user'
+                          ? 'bg-exoplanet-orange text-white'
+                          : 'bg-space-dark/50 text-gray-200 border border-space-blue/20'
+                      }`}
+                    >
+                      <p className="text-sm">{message.content}</p>
+                    </div>
+                  </div>
+                ))}
+                {isLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-space-dark/50 text-gray-200 border border-space-blue/20 p-3 rounded-lg">
+                      <p className="text-sm">Escribiendo...</p>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Chat Input */}
+              <div className="p-4 border-t border-space-blue/30">
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={currentMessage}
+                    onChange={(e) => setCurrentMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                    placeholder="Escribe tu pregunta..."
+                    className="flex-1 bg-space-dark/50 border border-space-blue/30 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-exoplanet-orange transition-colors duration-200"
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={isLoading}
+                    className="bg-exoplanet-orange hover:bg-orange-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white p-2 rounded-lg transition-colors duration-200"
+                  >
+                    {isLoading ? (
+                      <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

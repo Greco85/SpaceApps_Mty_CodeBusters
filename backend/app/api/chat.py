@@ -38,36 +38,12 @@ class ChatResponse(BaseModel):
 
 @router.post("/message", response_model=ChatResponse)
 async def send_message(request: ChatRequest):
-    """Proxy endpoint to send messages to Gemini (configurable). If GEMINI_API_URL/GEMINI_API_KEY are not set, returns a dummy reply."""
-    # Prefer settings from app.core.config (reads .env) but allow environment override
-    gemini_url = os.environ.get("GEMINI_API_URL") or settings.gemini_api_url
-    gemini_key = os.environ.get("GEMINI_API_KEY") or settings.gemini_api_key
+    """Proxy endpoint to send messages to Gemini. API key is hardcoded for hackathon - works for all team members without setup."""
+    # Hardcoded API key for hackathon - works for all team members without setup
+    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    gemini_key = "AIzaSyC3s--OXcU8TbI4iX-cY3wOPovqC-HX5TU"
 
-    # Clean values: remove surrounding whitespace and matching quotes if present
-    def _clean_val(v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return None
-        v2 = v.strip()
-        if (v2.startswith('"') and v2.endswith('"')) or (v2.startswith("'") and v2.endswith("'")):
-            v2 = v2[1:-1]
-        return v2
-
-    gemini_url = _clean_val(gemini_url)
-    gemini_key = _clean_val(gemini_key)
-
-    # If the URL isn't provided but a model name is, build a sensible default (v1beta generateContent)
-    if (not gemini_url) and settings.gemini_model:
-        model_name = _clean_val(settings.gemini_model)
-        if model_name:
-            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-            logger.info("Built GEMINI_API_URL from GEMINI_MODEL: %s", gemini_url)
-
-    # Simple fallback/dummy reply when not configured
-    if not gemini_url or not gemini_key:
-        # Build a small deterministic dummy reply for UX while developing
-        last = request.messages[-1].content if request.messages else ""
-        reply = f"(respuesta dummy) He recibido tu mensaje: '{last}'. Configura GEMINI_API_URL y GEMINI_API_KEY para respuestas reales."
-        return ChatResponse(reply=reply, raw=None)
+    # API key and URL are hardcoded - no fallback needed
 
     # Forward request to configured Gemini-compatible endpoint
     headers = {"Content-Type": "application/json"}
