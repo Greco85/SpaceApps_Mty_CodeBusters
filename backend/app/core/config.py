@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     
     # Database
     database_url: Optional[str] = None
+    mongodb_url: Optional[str] = None
     
     # ML Models
     model_path: str = "ml_models/trained_models/"

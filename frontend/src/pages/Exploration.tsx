@@ -4,22 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Upload, FileText, BarChart3, AlertCircle, Target, Globe, Star, TrendingUp, Zap, Compass, Search, HelpCircle, X, MessageCircle, Send, Minimize2, Bot, Sparkles, Calendar, MapPin, Rocket, Thermometer } from 'lucide-react';
 import Chatbot from '../components/Chatbot.tsx';
 import ExoplanetMap3D from '../components/ExoplanetMap3D.tsx';
-
-
-interface ExoplanetData {
-  id: string;
-  name: string;
-  classification: 'exoplanet' | 'candidate' | 'false_positive';
-  coordinates: {
-    rightAscension: number;
-    declination: number;
-  };
-  radius: number;
-  orbitalPeriod: number;
-  discoveryYear: number;
-  mission: string;
-  stellarTemperature: number;
-}
+import { exoplanetService, ExoplanetData, ExoplanetStats } from '../services/exoplanetService.ts';
 
 interface AnalysisResult {
   prediction: 'exoplanet' | 'candidate' | 'false_positive';
@@ -47,14 +32,34 @@ const Exploration: React.FC = () => {
   const [currentMessage, setCurrentMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+  const [stats, setStats] = useState<ExoplanetStats>({
+    total: 0,
+    exoplanets: 0,
+    candidates: 0,
+    false_positives: 0,
+    precision: 0,
+    recall: 0,
+    f1Score: 0,
+    accuracy: 0
+  });
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Load exoplanet data from CSV
+  // Load exoplanet data from MongoDB
   useEffect(() => {
     loadExoplanetData();
+    loadStatistics();
     // Ensure page starts at top
     window.scrollTo(0, 0);
   }, []);
+
+  const loadStatistics = async () => {
+    try {
+      const statistics = await exoplanetService.getExoplanetStats();
+      setStats(statistics);
+    } catch (error) {
+      console.error('Error loading statistics:', error);
+    }
+  };
 
   // Disable body scroll when modal is open
   useEffect(() => {
@@ -77,38 +82,42 @@ const Exploration: React.FC = () => {
 
   const loadExoplanetData = async () => {
     try {
-      const response = await fetch('/api/v1/analysis/sample');
-      if (response.ok) {
-        const data = await response.json();
-        const rows = data.rows || [];
-        
-        // Convert CSV data to exoplanet format
-        const exoplanetData: ExoplanetData[] = rows.slice(0, 100).map((row: any, index: number) => {
-          // Random classification for demo (in real app, this would come from ML prediction)
-          const classifications = ['exoplanet', 'candidate', 'false_positive'];
-          const randomClassification = classifications[Math.floor(Math.random() * classifications.length)];
-          
-          return {
-            id: `exoplanet-${index}`,
-            name: row.name || `Exoplanet ${index + 1}`,
-            classification: randomClassification,
-            coordinates: {
-              rightAscension: (Math.random() - 0.5) * 360, // Random coordinates for demo
-              declination: (Math.random() - 0.5) * 180,
-            },
-            radius: Number(row.radius || Math.random() * 2 + 0.5),
-            orbitalPeriod: Number(row.orbital_period || Math.random() * 1000 + 1),
-            discoveryYear: 2000 + Math.floor(Math.random() * 24),
-            mission: ['Kepler', 'TESS', 'K2'][Math.floor(Math.random() * 3)],
-            stellarTemperature: Number(row.stellar_temperature || 3000 + Math.random() * 6000),
-          };
-        });
-        
-        setExoplanets(exoplanetData);
-        setFilteredExoplanets(exoplanetData);
-      }
+      console.log('Cargando datos de exoplanetas desde MongoDB...');
+      const exoplanetData = await exoplanetService.getExoplanets('all', 1000);
+      console.log('Datos cargados:', exoplanetData.length, 'exoplanetas');
+      
+      setExoplanets(exoplanetData);
+      setFilteredExoplanets(exoplanetData);
     } catch (error) {
-      console.error('Error loading exoplanet data:', error);
+      console.error('Error loading exoplanet data from MongoDB:', error);
+      
+      // Fallback data si MongoDB no está disponible
+      const fallbackData: ExoplanetData[] = [
+        {
+          id: 'kepler-452b',
+          name: 'Kepler-452b',
+          classification: 'exoplanet',
+          coordinates: { rightAscension: 285.546, declination: 44.749 },
+          radius: 1.63,
+          orbitalPeriod: 384.843,
+          discoveryYear: 2015,
+          mission: 'Kepler',
+          stellarTemperature: 5757
+        },
+        {
+          id: 'toi-715b',
+          name: 'TOI-715b',
+          classification: 'candidate',
+          coordinates: { rightAscension: 120.234, declination: -52.876 },
+          radius: 1.55,
+          orbitalPeriod: 19.288,
+          discoveryYear: 2023,
+          mission: 'TESS',
+          stellarTemperature: 3930
+        }
+      ];
+      setExoplanets(fallbackData);
+      setFilteredExoplanets(fallbackData);
     }
   };
 
@@ -127,24 +136,6 @@ const Exploration: React.FC = () => {
     setIsExoplanetModalOpen(true);
   };
 
-  // Calculate statistics from filtered data
-  const getStatistics = () => {
-    const total = filteredExoplanets.length;
-    const exoplanets = filteredExoplanets.filter(ep => ep.classification === 'exoplanet').length;
-    const candidates = filteredExoplanets.filter(ep => ep.classification === 'candidate').length;
-    const falsePositives = filteredExoplanets.filter(ep => ep.classification === 'false_positive').length;
-    
-    return {
-      total,
-      exoplanets,
-      candidates,
-      falsePositives,
-      precision: total > 0 ? ((exoplanets / total) * 100).toFixed(1) : '0.0',
-      recall: 91.8,
-      f1Score: 93.0,
-      accuracy: 96.1
-    };
-  };
 
   // Data for charts
   const discoveryTrendData = [
@@ -236,7 +227,6 @@ const Exploration: React.FC = () => {
     }
   };
 
-  const stats = getStatistics();
 
   return (
     <div className="min-h-screen bg-space-dark text-white">
