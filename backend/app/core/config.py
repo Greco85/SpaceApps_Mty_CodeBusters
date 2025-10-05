@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     model_path: str = "ml_models/trained_models/"
     data_path: str = "data/processed/"
     # Gemini / Generative AI
-    gemini_api_key: Optional[str] = None
-    gemini_api_url: Optional[str] = None
+    gemini_api_key: Optional[str] = "AIzaSyANxRWtZKccr4BmCO-TBFcEbmCnykiweSM"
+    gemini_api_url: Optional[str] = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     # If GEMINI_API_URL is not provided, GEMINI_MODEL can be used to build a default v1beta URL
     gemini_model: Optional[str] = None
     
