@@ -13,33 +13,46 @@
     "@types/react-dom": "^18.0.6",
     "axios": "^1.4.0",
 <<<<<<< HEAD
+<<<<<<< HEAD
     "leaflet": "^1.9.4",
 =======
 >>>>>>> def7755 (fix(env): Resolve network/host issues to make all services operationa)
+=======
+>>>>>>> d4bb6de (confict)
     "lucide-react": "^0.263.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-dropzone": "^14.2.3",
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> d4bb6de (confict)
     "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.3.0",
     "react-scripts": "5.0.1",
     "recharts": "^2.15.4",
     "three": "^0.180.0",
+<<<<<<< HEAD
 =======
     "react-router-dom": "^6.3.0",
     "react-scripts": "^5.0.1",
     "recharts": "^2.7.2",
 >>>>>>> def7755 (fix(env): Resolve network/host issues to make all services operationa)
+=======
+>>>>>>> d4bb6de (confict)
     "typescript": "^4.7.4",
     "web-vitals": "^2.1.4"
   },
   "devDependencies": {
     "@types/react-router-dom": "^5.3.3",
 <<<<<<< HEAD
+<<<<<<< HEAD
     "@types/three": "^0.180.0",
 =======
 >>>>>>> def7755 (fix(env): Resolve network/host issues to make all services operationa)
+=======
+    "@types/three": "^0.180.0",
+>>>>>>> d4bb6de (confict)
     "autoprefixer": "^10.4.14",
     "cross-env": "^10.1.0",
     "postcss": "^8.4.27",
