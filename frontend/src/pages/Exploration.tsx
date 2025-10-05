@@ -7,7 +7,7 @@ import ExoplanetMap3D from '../components/ExoplanetMap3D.tsx';
 
 
 interface ExoplanetData {
-  id: string;
+  id: string | number;
   name: string;
   classification: 'exoplanet' | 'candidate' | 'false_positive';
   coordinates: {
@@ -16,9 +16,9 @@ interface ExoplanetData {
   };
   radius: number;
   orbitalPeriod: number;
-  discoveryYear: number;
-  mission: string;
-  stellarTemperature: number;
+  discoveryYear?: number;
+  mission?: string;
+  stellarTemperature?: number;
 }
 
 interface AnalysisResult {
@@ -40,6 +40,9 @@ const Exploration: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [templatePreview, setTemplatePreview] = useState<any[] | null>(null);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isExoplanetModalOpen, setIsExoplanetModalOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
@@ -49,16 +52,30 @@ const Exploration: React.FC = () => {
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const [uploadErrorDetail, setUploadErrorDetail] = useState<any | null>(null);
+
   // Load exoplanet data from CSV
   useEffect(() => {
     loadExoplanetData();
     // Ensure page starts at top
     window.scrollTo(0, 0);
+    // fetch available models for analysis modal
+    (async () => {
+      try {
+        const res = await fetch('/api/v1/analysis/models');
+        if (!res.ok) return;
+        const j = await res.json();
+        setModels(j.models || []);
+        if ((j.models || []).length > 0) setSelectedModel((j.models || [])[0]);
+      } catch (e) {
+        // ignore
+      }
+    })();
   }, []);
 
   // Disable body scroll when modal is open
   useEffect(() => {
-    if (isHelpModalOpen || isExoplanetModalOpen || isAnalysisModalOpen) {
+    if (isHelpModalOpen || isExoplanetModalOpen || isAnalysisModalOpen || uploadErrorDetail) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -68,7 +85,7 @@ const Exploration: React.FC = () => {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isHelpModalOpen, isExoplanetModalOpen, isAnalysisModalOpen]);
+  }, [isHelpModalOpen, isExoplanetModalOpen, isAnalysisModalOpen, uploadErrorDetail]);
 
   // Auto scroll to bottom when new messages arrive
   useEffect(() => {
@@ -189,11 +206,26 @@ const Exploration: React.FC = () => {
         body: form,
       });
 
-      if (!res.ok) {
-        throw new Error(`Server error: ${res.status}`);
-      }
+          if (!res.ok) {
+            // Try to read json error body for structured missing_columns info
+            try {
+              const j = await res.json();
+              const detail = j?.detail;
+              if (detail && detail.error === 'missing_columns') {
+                // set state and return immediately so modal shows without relying on async catch timing
+                setUploadErrorDetail(detail);
+                setIsUploading(false);
+                return;
+              }
+              // fallback: stringify
+              throw new Error(`Server error: ${res.status} - ${JSON.stringify(j)}`);
+            } catch (e: any) {
+              // if parsing failed, throw generic
+              throw new Error(`Server error: ${res.status}`);
+            }
+          }
 
-      const json = await res.json();
+          const json = await res.json();
       setAnalysisResult({
         prediction: json.prediction,
         confidence: json.confidence,
@@ -204,9 +236,77 @@ const Exploration: React.FC = () => {
           stellar_radius: json.features_analyzed?.stellar_radius || 0,
         }
       });
-    } catch (err: any) {
+      } catch (err: any) {
       console.error('Upload error', err);
       alert('Error al procesar el archivo: ' + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const fetchTemplate = async () => {
+    if (!selectedModel) return;
+    setIsUploading(true);
+    try {
+      const res = await fetch(`/api/v1/analysis/template/${selectedModel}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || 'Error fetching template');
+      }
+      const j = await res.json();
+      setTemplatePreview(j.template_preview || null);
+    } catch (err: any) {
+      alert('No se pudo cargar plantilla: ' + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const analyzeAll = async () => {
+    if (!selectedFile) return alert('Selecciona un archivo primero');
+    if (!selectedModel) return alert('Selecciona un modelo');
+    setIsUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', selectedFile, selectedFile.name);
+      form.append('model', selectedModel);
+
+      const res = await fetch('/api/v1/analysis/predict-batch', {
+        method: 'POST',
+        body: form
+      });
+      if (!res.ok) {
+        try {
+          const j = await res.json();
+          const detail = j?.detail;
+          if (detail && detail.error === 'missing_columns') {
+            setUploadErrorDetail(detail);
+            setIsUploading(false);
+            return;
+          }
+          throw new Error(JSON.stringify(j));
+        } catch (e) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+      }
+      const j = await res.json();
+      if (j.rows && j.rows.length > 0) {
+        const first = j.rows[0];
+        setAnalysisResult({
+          prediction: first.prediction,
+          confidence: first.confidence,
+          features: {
+            orbital_period: first.input.orbital_period || 0,
+            transit_duration: first.input.transit_duration || 0,
+            transit_depth: first.input.transit_depth || 0,
+            stellar_radius: first.input.stellar_radius || 0,
+          }
+        });
+      } else {
+        alert('No se obtuvieron predicciones');
+      }
+    } catch (err: any) {
+      alert('Error en análisis por lotes: ' + err.message);
     } finally {
       setIsUploading(false);
     }
@@ -516,12 +616,43 @@ const Exploration: React.FC = () => {
                 </label>
               </div>
 
-              <button
-                onClick={() => document.getElementById('file-upload')?.click()}
-                className="w-full bg-exoplanet-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors duration-200"
-              >
-                {isUploading ? 'Analizando...' : 'Analizar Datos'}
-              </button>
+              <div className="flex items-center space-x-2">
+                <select
+                  value={selectedModel || ''}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-gray-800 text-white rounded"
+                >
+                  {models.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <button onClick={fetchTemplate} className="px-3 py-2 bg-blue-600 text-white rounded">Plantilla</button>
+              </div>
+
+              <div className="mt-3 flex space-x-2">
+                <button
+                  onClick={() => document.getElementById('file-upload')?.click()}
+                  className="flex-1 bg-exoplanet-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors duration-200"
+                >
+                  {isUploading ? 'Analizando...' : 'Seleccionar Archivo'}
+                </button>
+                <button
+                  onClick={analyzeAll}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors duration-200"
+                >
+                  Analizar todo
+                </button>
+              </div>
+
+              {templatePreview && (
+                <div className="mt-4 p-2 bg-gray-900 rounded max-h-40 overflow-auto">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {templatePreview.map((r, i) => (
+                        <tr key={i} className="border-b border-gray-800"><td className="px-2 py-1">{String(Object.values(r)[0])}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {analysisResult && (
                 <div className="mt-4 p-4 bg-space-blue/20 rounded-lg">
@@ -534,6 +665,54 @@ const Exploration: React.FC = () => {
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Upload error modal (missing columns) */}
+      {uploadErrorDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-space-dark border border-space-blue/30 rounded-lg max-w-lg w-full mx-4 p-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-white">Columnas faltantes en el CSV</h3>
+                <p className="text-sm text-gray-400 mt-1">El archivo subido no contiene las columnas requeridas para el análisis.</p>
+              </div>
+              <button onClick={() => setUploadErrorDetail(null)} className="text-gray-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-3 bg-gray-900 rounded">
+                <h4 className="text-sm font-semibold text-exoplanet-orange">Columnas que faltan</h4>
+                <ul className="mt-2 text-sm text-white space-y-1">
+                  {(uploadErrorDetail.missing || []).map((m: string, i: number) => (
+                    <li key={i} className="pl-2">• {m}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="p-3 bg-gray-900 rounded">
+                <h4 className="text-sm font-semibold text-exoplanet-orange">Columnas detectadas en el archivo</h4>
+                <div className="mt-2 text-sm text-gray-200 max-h-40 overflow-auto">
+                  <pre className="whitespace-pre-wrap">{(uploadErrorDetail.available_columns || []).join(', ')}</pre>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 text-sm text-gray-300 space-y-2">
+              <p>Recomendaciones:</p>
+              <ul className="list-disc list-inside">
+                <li>Revisa el encabezado CSV y asegúrate que incluya: <strong>orbital_period, transit_duration, transit_depth, stellar_radius</strong>.</li>
+                <li>Si tus columnas usan otros nombres (por ejemplo <em>period</em>, <em>duration</em>, <em>depth</em>, <em>srad</em>), puedo actualizar la validación para aceptar esos alias; dime los nombres y lo hago.</li>
+                <li>Si el CSV tiene líneas de comentario iniciales, remuévelas o sube un CSV limpio que comience en la fila de encabezado.</li>
+              </ul>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button onClick={() => setUploadErrorDetail(null)} className="px-4 py-2 bg-exoplanet-orange hover:bg-orange-600 text-white rounded">Cerrar</button>
+            </div>
           </div>
         </div>
       )}
@@ -636,7 +815,7 @@ const Exploration: React.FC = () => {
                   <div className="space-y-3">
                     <div>
                       <span className="text-gray-400 text-sm">Temperatura:</span>
-                      <p className="text-white font-medium">{selectedExoplanet.stellarTemperature.toFixed(0)} K</p>
+                      <p className="text-white font-medium">{selectedExoplanet.stellarTemperature ? selectedExoplanet.stellarTemperature.toFixed(0) + ' K' : 'N/A'}</p>
                     </div>
                     <div>
                       <span className="text-gray-400 text-sm">Tipo:</span>
