@@ -167,7 +167,12 @@ class CSVExoplanetMapper:
                 radius = mapping['radius'](row, df)
                 stellar_temp = mapping['stellarTemperature'](row, df)
             else:
-                name = self._safe_get(row, mapping['name'])
+                # Si el mapeo de nombre es una función, llamarla con df
+                if callable(mapping['name']):
+                    name = mapping['name'](row, df) if df is not None else mapping['name'](row, pd.DataFrame([row]))
+                else:
+                    name = self._safe_get(row, mapping['name'])
+                
                 classification = mapping['classification'](row)
                 ra = self._safe_get(row, mapping['rightAscension'])
                 dec = self._safe_get(row, mapping['declination'])
@@ -175,9 +180,13 @@ class CSVExoplanetMapper:
                 radius = self._safe_get(row, mapping['radius'])
                 stellar_temp = self._safe_get(row, mapping['stellarTemperature'])
             
-            if not name or pd.isna(name):
-                logger.warning(f"Fila rechazada: nombre inválido o vacío - '{name}'")
-                return None
+            # Si no hay nombre, generar uno automáticamente
+            if not name or pd.isna(name) or str(name).lower() == 'none':
+                if df is not None:
+                    name = self._find_name_column(row, df)
+                else:
+                    name = f"Exoplanet-{row.name + 1000}"
+                logger.info(f"Nombre generado automáticamente: '{name}'")
             
             # Generar ID único
             exoplanet_id = f"{mission_type.lower()}-{str(name).replace(' ', '-').replace('/', '-')}"
@@ -268,14 +277,24 @@ class CSVExoplanetMapper:
     
     # Funciones auxiliares para mapeo genérico (unknown)
     def _find_name_column(self, row: pd.Series, df: pd.DataFrame) -> str:
-        """Busca columna de nombre de forma inteligente"""
+        """Busca columna de nombre de forma inteligente o genera uno basado en la misión"""
         name_candidates = ['name', 'pl_name', 'toi', 'kepler_name', 'planet_name', 'id']
         for candidate in name_candidates:
             if candidate in df.columns:
                 value = self._safe_get(row, candidate)
                 if value and not pd.isna(value):
                     return str(value)
-        return f"exoplanet-{row.name}"  # Usar índice como fallback
+        
+        # Si no encuentra nombre, generar uno basado en la misión detectada
+        mission_type = self.detect_mission_type(df)
+        if mission_type == 'kepler':
+            return f"Kepler-{row.name + 1000}"  # Usar índice + 1000 para evitar conflictos
+        elif mission_type == 'tess':
+            return f"TOI-{row.name + 1000}"
+        elif mission_type == 'k2':
+            return f"K2-{row.name + 1000}"
+        else:
+            return f"Exoplanet-{row.name + 1000}"
     
     def _find_ra_column(self, row: pd.Series, df: pd.DataFrame) -> float:
         """Busca columna de ascensión recta o genera coordenada única"""
