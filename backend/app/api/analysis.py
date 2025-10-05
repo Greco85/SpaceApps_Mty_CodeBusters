@@ -6,6 +6,7 @@ import joblib
 import json
 import io
 from pydantic import BaseModel
+import os
 
 router = APIRouter()
 
@@ -93,9 +94,13 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
         if not file.filename.endswith('.csv'):
             raise HTTPException(status_code=400, detail="Solo se permiten archivos CSV")
         
-        # Leer archivo
+        # Leer archivo (robusto a CSVs mal formados)
         contents = await file.read()
-        df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
+        text = contents.decode('utf-8', errors='replace')
+        try:
+            df = pd.read_csv(io.StringIO(text))
+        except Exception:
+            df = pd.read_csv(io.StringIO(text), sep=None, engine='python', on_bad_lines='skip')
         
         # Validar columnas requeridas
         required_columns = ['orbital_period', 'transit_duration', 'transit_depth', 'stellar_radius']
@@ -121,6 +126,42 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error procesando archivo: {str(e)}")
+
+
+@router.get('/sample')
+async def get_sample_csv():
+    """Return a small sample of the CSV located in the project root (first 50 rows).
+    Tries a few likely paths relative to the backend working directory.
+    """
+    candidates = [
+        os.path.join(os.getcwd(), '..', 'cumulative_2025.10.04_18.03.20.csv'),
+        os.path.join(os.getcwd(), '..', '..', 'cumulative_2025.10.04_18.03.20.csv'),
+        os.path.join(os.getcwd(), 'cumulative_2025.10.04_18.03.20.csv'),
+        os.path.join(os.getcwd(), '..', 'data', 'cumulative_2025.10.04_18.03.20.csv')
+    ]
+
+    found = None
+    for p in candidates:
+        if os.path.exists(p):
+            found = p
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail="Sample CSV not found in workspace root")
+
+    # Try multiple strategies to read possibly malformed CSV files
+    try:
+        try:
+            df = pd.read_csv(found)
+        except Exception:
+            # fallback: let python engine guess the separator and skip bad lines
+            df = pd.read_csv(found, sep=None, engine='python', on_bad_lines='skip')
+
+        # Return first 50 rows as records (safe types)
+        sample = df.head(50).fillna('').to_dict(orient='records')
+        return {"rows": sample}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error leyendo sample CSV: {str(e)}")
 
 def dummy_prediction(features):
     """
