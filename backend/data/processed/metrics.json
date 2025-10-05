@@ -1,0 +1,9 @@
+{
+  "accuracy": 0.942, 
+  "precision": 0.938, 
+  "recall": 0.918, 
+  "f1_score": 0.930, 
+  "auc_roc": 0.965,
+  "confusion_matrix": {"true_positives": 342, "false_positives": 23, "true_negatives": 48, "false_negatives": 27},
+  "feature_importance": {"transit_depth": 0.35, "orbital_period": 0.28, "transit_duration": 0.22, "stellar_radius": 0.15}
+}
