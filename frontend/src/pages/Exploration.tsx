@@ -43,6 +43,7 @@ const Exploration: React.FC = () => {
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [templatePreview, setTemplatePreview] = useState<any[] | null>(null);
+  const [enforceTemplate, setEnforceTemplate] = useState<boolean>(true);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isExoplanetModalOpen, setIsExoplanetModalOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
@@ -53,6 +54,8 @@ const Exploration: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const [uploadErrorDetail, setUploadErrorDetail] = useState<any | null>(null);
+  const [batchGroupsExpl, setBatchGroupsExpl] = useState<{exoplanet: number, candidate: number, false_positive: number} | null>(null);
+  const [batchAccuracyExpl, setBatchAccuracyExpl] = useState<number | null>(null);
 
   // Load exoplanet data from CSV
   useEffect(() => {
@@ -86,6 +89,13 @@ const Exploration: React.FC = () => {
       document.body.style.overflow = 'unset';
     };
   }, [isHelpModalOpen, isExoplanetModalOpen, isAnalysisModalOpen, uploadErrorDetail]);
+
+  // Helper to render confidence safely
+  const formatConfidence = (v: number | null) => {
+    if (v === null || v === undefined) return '-';
+    if (typeof v !== 'number' || !isFinite(v) || Number.isNaN(v)) return '-';
+    return `${(v * 100).toFixed(1)}%`;
+  };
 
   // Auto scroll to bottom when new messages arrive
   useEffect(() => {
@@ -198,8 +208,21 @@ const Exploration: React.FC = () => {
     setIsUploading(true);
 
     try {
+      // If template enforcement is active, require a selected model to compare against
+      if (enforceTemplate && !selectedModel) {
+        alert('Selecciona un modelo o desactiva Plantilla antes de subir el archivo.');
+        setIsUploading(false);
+        return;
+      }
       const form = new FormData();
       form.append('file', file, file.name);
+      // include the selected model so server knows which model/template is intended
+      if (selectedModel) {
+        form.append('model', selectedModel);
+      }
+      if (enforceTemplate && selectedModel) {
+        form.append('template_model', selectedModel);
+      }
 
       const res = await fetch('/api/v1/analysis/upload', {
         method: 'POST',
@@ -207,41 +230,101 @@ const Exploration: React.FC = () => {
       });
 
           if (!res.ok) {
-            // Try to read json error body for structured missing_columns info
+            // Try to read json error body for structured info
+            let parsed: any = null;
             try {
-              const j = await res.json();
-              const detail = j?.detail;
-              if (detail && detail.error === 'missing_columns') {
-                // set state and return immediately so modal shows without relying on async catch timing
-                setUploadErrorDetail(detail);
-                setIsUploading(false);
-                return;
-              }
-              // fallback: stringify
-              throw new Error(`Server error: ${res.status} - ${JSON.stringify(j)}`);
-            } catch (e: any) {
-              // if parsing failed, throw generic
-              throw new Error(`Server error: ${res.status}`);
+              parsed = await res.json();
+            } catch (e) {
+              // not json
             }
+
+            const detail = parsed?.detail || parsed;
+            if (detail && (detail.error === 'missing_columns' || detail.error === 'template_mismatch')) {
+              setUploadErrorDetail(detail);
+              setIsUploading(false);
+              // reset file input so user can try again
+              const inputEl = document.getElementById('file-upload') as HTMLInputElement | null;
+              if (inputEl) inputEl.value = '';
+              return;
+            }
+
+            // If server returned some structured message, show it in the modal; otherwise show generic
+            if (detail) {
+              setUploadErrorDetail({ error: 'server_error', message: detail });
+              setIsUploading(false);
+              const inputEl = document.getElementById('file-upload') as HTMLInputElement | null;
+              if (inputEl) inputEl.value = '';
+              return;
+            }
+
+            // fallback: try to read text
+            try {
+              const txt = await res.text();
+              setUploadErrorDetail({ error: 'server_error', message: txt || `HTTP ${res.status}` });
+            } catch (e) {
+              setUploadErrorDetail({ error: 'server_error', message: `HTTP ${res.status}` });
+            }
+            setIsUploading(false);
+            const inputEl = document.getElementById('file-upload') as HTMLInputElement | null;
+            if (inputEl) inputEl.value = '';
+            return;
           }
 
           const json = await res.json();
-      setAnalysisResult({
-        prediction: json.prediction,
-        confidence: json.confidence,
-        features: {
-          orbital_period: json.features_analyzed?.orbital_period || 0,
-          transit_duration: json.features_analyzed?.transit_duration || 0,
-          transit_depth: json.features_analyzed?.transit_depth || 0,
-          stellar_radius: json.features_analyzed?.stellar_radius || 0,
+      // If backend returned multiple rows (batch), compute a summary for the modal
+      if (json.rows) {
+        // compute counts using groups if present, else count by prediction
+        let counts = { exoplanet: 0, candidate: 0, false_positive: 0 };
+        if (json.groups) {
+          counts.exoplanet = (json.groups.exoplanet || []).length;
+          counts.candidate = (json.groups.candidate || []).length;
+          counts.false_positive = (json.groups.false_positive || []).length;
+        } else {
+          for (const r of json.rows) {
+            if (r.prediction === 'exoplanet') counts.exoplanet++;
+            else if (r.prediction === 'candidate') counts.candidate++;
+            else if (r.prediction === 'false_positive') counts.false_positive++;
+          }
         }
-      });
+
+        // compute average model confidence across rows (preferred for 'Confianza')
+        let sumConf = 0, confCount = 0;
+        for (const r of json.rows) {
+          if (typeof r.confidence === 'number' && isFinite(r.confidence)) {
+            sumConf += r.confidence;
+            confCount++;
+          }
+        }
+        const avgConf = confCount > 0 ? (sumConf / confCount) : null;
+
+        setBatchGroupsExpl(counts);
+        setBatchAccuracyExpl(avgConf);
+        // clear single-row analysis result
+        setAnalysisResult(null);
+      } else {
+        setAnalysisResult({
+          prediction: json.prediction,
+          confidence: json.confidence,
+          features: {
+            orbital_period: json.features_analyzed?.orbital_period || 0,
+            transit_duration: json.features_analyzed?.transit_duration || 0,
+            transit_depth: json.features_analyzed?.transit_depth || 0,
+            stellar_radius: json.features_analyzed?.stellar_radius || 0,
+          }
+        });
+        setBatchGroupsExpl(null);
+        setBatchAccuracyExpl(null);
+      }
       } catch (err: any) {
-      console.error('Upload error', err);
-      alert('Error al procesar el archivo: ' + err.message);
-    } finally {
-      setIsUploading(false);
-    }
+        console.error('Upload error', err);
+        // Show structured error modal instead of an alert
+        setUploadErrorDetail({ error: 'client_exception', message: err?.message || String(err) });
+        // reset file input so user can retry
+        const inputEl = document.getElementById('file-upload') as HTMLInputElement | null;
+        if (inputEl) inputEl.value = '';
+      } finally {
+        setIsUploading(false);
+      }
   };
 
   const fetchTemplate = async () => {
@@ -270,6 +353,9 @@ const Exploration: React.FC = () => {
       const form = new FormData();
       form.append('file', selectedFile, selectedFile.name);
       form.append('model', selectedModel);
+      if (enforceTemplate && selectedModel) {
+        form.append('template_model', selectedModel);
+      }
 
       const res = await fetch('/api/v1/analysis/predict-batch', {
         method: 'POST',
@@ -624,7 +710,15 @@ const Exploration: React.FC = () => {
                 >
                   {models.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <button onClick={fetchTemplate} className="px-3 py-2 bg-blue-600 text-white rounded">Plantilla</button>
+                <button
+                  onClick={async () => {
+                    await fetchTemplate();
+                    setEnforceTemplate(prev => !prev);
+                  }}
+                  className={`px-3 py-2 ${enforceTemplate ? 'bg-green-600' : 'bg-blue-600'} text-white rounded`}
+                >
+                  Plantilla
+                </button>
               </div>
 
               <div className="mt-3 flex space-x-2">
@@ -633,12 +727,6 @@ const Exploration: React.FC = () => {
                   className="flex-1 bg-exoplanet-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors duration-200"
                 >
                   {isUploading ? 'Analizando...' : 'Seleccionar Archivo'}
-                </button>
-                <button
-                  onClick={analyzeAll}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors duration-200"
-                >
-                  Analizar todo
                 </button>
               </div>
 
@@ -654,13 +742,38 @@ const Exploration: React.FC = () => {
                 </div>
               )}
 
-              {analysisResult && (
+              {(batchGroupsExpl || analysisResult) && (
                 <div className="mt-4 p-4 bg-space-blue/20 rounded-lg">
                   <h4 className="font-semibold mb-2">Resultado:</h4>
-                  <div className="space-y-1 text-sm">
-                    <p><strong>Predicción:</strong> {analysisResult.prediction}</p>
-                    <p><strong>Confianza:</strong> {(analysisResult.confidence * 100).toFixed(1)}%</p>
-                  </div>
+                  {batchGroupsExpl ? (
+                    <div className="grid grid-cols-2 gap-2 text-sm text-gray-100">
+                      <div className="font-medium">Exoplanetas</div>
+                      <div className="text-right text-green-400 font-semibold">{batchGroupsExpl.exoplanet}</div>
+
+                      <div className="font-medium">Falsos positivos</div>
+                      <div className="text-right text-red-400 font-semibold">{batchGroupsExpl.false_positive}</div>
+
+                      <div className="font-medium">Candidatos</div>
+                      <div className="text-right text-yellow-300 font-semibold">{batchGroupsExpl.candidate}</div>
+
+                      <div className="font-medium">Confianza</div>
+                      <div className="text-right text-white font-semibold">{formatConfidence(batchAccuracyExpl)}</div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 text-sm text-gray-100">
+                      <div className="font-medium">Exoplanetas</div>
+                      <div className="text-right text-green-400 font-semibold">{analysisResult!.prediction === 'exoplanet' ? 1 : 0}</div>
+
+                      <div className="font-medium">Falsos positivos</div>
+                      <div className="text-right text-red-400 font-semibold">{analysisResult!.prediction === 'false_positive' ? 1 : 0}</div>
+
+                      <div className="font-medium">Candidatos</div>
+                      <div className="text-right text-yellow-300 font-semibold">{analysisResult!.prediction === 'candidate' ? 1 : 0}</div>
+
+                      <div className="font-medium">Confianza</div>
+                      <div className="text-right text-white font-semibold">{formatConfidence(analysisResult!.confidence)}</div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -672,45 +785,80 @@ const Exploration: React.FC = () => {
       {/* Upload error modal (missing columns) */}
       {uploadErrorDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-space-dark border border-space-blue/30 rounded-lg max-w-lg w-full mx-4 p-6">
-            <div className="flex items-start justify-between">
+          <div className="bg-space-dark border border-space-blue/30 rounded-lg max-w-lg w-full mx-4 flex flex-col max-h-[80vh]">
+            {/* Header */}
+            <div className="p-6 flex items-start justify-between border-b border-space-blue/20">
               <div>
-                <h3 className="text-xl font-bold text-white">Columnas faltantes en el CSV</h3>
-                <p className="text-sm text-gray-400 mt-1">El archivo subido no contiene las columnas requeridas para el análisis.</p>
+                <h3 className="text-xl font-bold text-white">{uploadErrorDetail?.error === 'template_mismatch' ? 'La plantilla no coincide' : 'Columnas faltantes en el CSV'}</h3>
+                <p className="text-sm text-gray-400 mt-1">{uploadErrorDetail?.error === 'template_mismatch' ? 'El archivo subido no coincide con la plantilla esperada para el modelo seleccionado.' : 'El archivo subido no contiene las columnas requeridas para el análisis.'}</p>
               </div>
               <button onClick={() => setUploadErrorDetail(null)} className="text-gray-400 hover:text-white">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-3 bg-gray-900 rounded">
-                <h4 className="text-sm font-semibold text-exoplanet-orange">Columnas que faltan</h4>
-                <ul className="mt-2 text-sm text-white space-y-1">
-                  {(uploadErrorDetail.missing || []).map((m: string, i: number) => (
-                    <li key={i} className="pl-2">• {m}</li>
-                  ))}
+            {/* Scrollable body */}
+            <div className="p-6 overflow-auto flex-1">
+              {uploadErrorDetail?.error === 'template_mismatch' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3 bg-gray-900 rounded">
+                    <h4 className="text-sm font-semibold text-exoplanet-orange">Columnas esperadas por la plantilla</h4>
+                    <ul className="mt-2 text-sm text-white space-y-1 max-h-64 overflow-auto">
+                      {(uploadErrorDetail.expected_columns || []).map((m: string, i: number) => (
+                        <li key={i} className="pl-2">• {m}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="p-3 bg-gray-900 rounded">
+                    <h4 className="text-sm font-semibold text-exoplanet-orange">Columnas detectadas en el archivo</h4>
+                    <div className="mt-2 text-sm text-gray-200 max-h-64 overflow-auto">
+                      <pre className="whitespace-pre-wrap">{(uploadErrorDetail.found_columns || uploadErrorDetail.available_columns || []).join(', ')}</pre>
+                    </div>
+                    {uploadErrorDetail.missing_from_upload && (
+                      <div className="mt-2 text-sm text-yellow-300">Faltan: {(uploadErrorDetail.missing_from_upload || []).join(', ')}</div>
+                    )}
+                  </div>
+                </div>
+              ) : (uploadErrorDetail.missing || uploadErrorDetail.available_columns) ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3 bg-gray-900 rounded">
+                    <h4 className="text-sm font-semibold text-exoplanet-orange">Columnas que faltan</h4>
+                    <ul className="mt-2 text-sm text-white space-y-1 max-h-64 overflow-auto">
+                      {(uploadErrorDetail.missing || []).map((m: string, i: number) => (
+                        <li key={i} className="pl-2">• {m}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="p-3 bg-gray-900 rounded">
+                    <h4 className="text-sm font-semibold text-exoplanet-orange">Columnas detectadas en el archivo</h4>
+                    <div className="mt-2 text-sm text-gray-200 max-h-64 overflow-auto">
+                      <pre className="whitespace-pre-wrap">{(uploadErrorDetail.available_columns || []).join(', ')}</pre>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-gray-900 rounded">
+                  <h4 className="text-sm font-semibold text-exoplanet-orange">Mensaje del servidor</h4>
+                  <div className="mt-2 text-sm text-gray-200">
+                    <pre className="whitespace-pre-wrap">{typeof uploadErrorDetail.message === 'object' ? JSON.stringify(uploadErrorDetail.message, null, 2) : String(uploadErrorDetail.message || uploadErrorDetail)}</pre>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 text-sm text-gray-300 space-y-2">
+                <p>Recomendaciones:</p>
+                <ul className="list-disc list-inside">
+                  <li>Revisa el encabezado CSV y asegúrate que incluya: <strong>orbital_period, transit_duration, transit_depth, stellar_radius</strong>.</li>
+                  <li>Si tus columnas usan otros nombres (por ejemplo <em>period</em>, <em>duration</em>, <em>depth</em>, <em>srad</em>), puedo actualizar la validación para aceptar esos alias; dime los nombres y lo hago.</li>
+                  <li>Si el CSV tiene líneas de comentario iniciales, remuévelas o sube un CSV limpio que comience en la fila de encabezado.</li>
                 </ul>
               </div>
-
-              <div className="p-3 bg-gray-900 rounded">
-                <h4 className="text-sm font-semibold text-exoplanet-orange">Columnas detectadas en el archivo</h4>
-                <div className="mt-2 text-sm text-gray-200 max-h-40 overflow-auto">
-                  <pre className="whitespace-pre-wrap">{(uploadErrorDetail.available_columns || []).join(', ')}</pre>
-                </div>
-              </div>
             </div>
 
-            <div className="mt-4 text-sm text-gray-300 space-y-2">
-              <p>Recomendaciones:</p>
-              <ul className="list-disc list-inside">
-                <li>Revisa el encabezado CSV y asegúrate que incluya: <strong>orbital_period, transit_duration, transit_depth, stellar_radius</strong>.</li>
-                <li>Si tus columnas usan otros nombres (por ejemplo <em>period</em>, <em>duration</em>, <em>depth</em>, <em>srad</em>), puedo actualizar la validación para aceptar esos alias; dime los nombres y lo hago.</li>
-                <li>Si el CSV tiene líneas de comentario iniciales, remuévelas o sube un CSV limpio que comience en la fila de encabezado.</li>
-              </ul>
-            </div>
-
-            <div className="mt-6 flex justify-end">
+            {/* Footer - always visible */}
+            <div className="p-4 border-t border-space-blue/30 bg-space-dark/80 flex justify-end">
               <button onClick={() => setUploadErrorDetail(null)} className="px-4 py-2 bg-exoplanet-orange hover:bg-orange-600 text-white rounded">Cerrar</button>
             </div>
           </div>

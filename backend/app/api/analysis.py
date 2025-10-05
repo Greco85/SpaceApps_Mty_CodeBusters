@@ -11,6 +11,41 @@ import os
 
 router = APIRouter()
 
+
+def make_json_safe(o):
+    """Recursively convert numpy/pandas types and NaN/inf to JSON-safe Python types."""
+    # dict
+    if isinstance(o, dict):
+        return {k: make_json_safe(v) for k, v in o.items()}
+    # list/tuple
+    if isinstance(o, (list, tuple)):
+        return [make_json_safe(v) for v in o]
+    # numpy scalar types
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, (np.floating,)):
+        v = float(o)
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return v
+    # python float
+    if isinstance(o, float):
+        if math.isnan(o) or math.isinf(o):
+            return None
+        return o
+    # pandas NA
+    try:
+        if pd.isna(o):
+            return None
+    except Exception:
+        pass
+    # other JSON-safe types
+    try:
+        json.dumps(o)
+        return o
+    except Exception:
+        return str(o)
+
 class AnalysisRequest(BaseModel):
     orbital_period: float
     transit_duration: float
@@ -85,8 +120,8 @@ async def predict_exoplanet(request: AnalysisRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en el análisis: {str(e)}")
 
-@router.post("/upload", response_model=AnalysisResponse)
-async def analyze_uploaded_file(file: UploadFile = File(...)):
+@router.post("/upload")
+async def analyze_uploaded_file(file: UploadFile = File(...), template_model: Optional[str] = Form(None)):
     """
     Analiza un archivo CSV con datos de exoplanetas.
     """
@@ -130,6 +165,33 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
         except Exception:
             # Fallback: let pandas try to guess separator and skip bad lines
             df = pd.read_csv(io.StringIO(cleaned_text), sep=None, engine='python', on_bad_lines='skip')
+
+        # If the client requested enforcement of a specific template/model, validate columns
+        if template_model:
+            # find template CSV for requested model
+            info = MODEL_INFO.get(template_model.lower())
+            if not info:
+                raise HTTPException(status_code=400, detail={"error": "unknown_template", "template": template_model})
+            tpl_path = locate_first_existing(info.get('csv_templates', []))
+            if not tpl_path:
+                raise HTTPException(status_code=400, detail={"error": "template_not_found_on_server", "template": template_model})
+            try:
+                tpl_cols = read_csv_headers_skipping_comments(tpl_path)
+                uploaded_cols = [c.lower() for c in list(df.columns)]
+                # require that template columns are a subset of uploaded columns
+                missing_tpl = [c for c in tpl_cols if c not in uploaded_cols]
+                if missing_tpl:
+                    raise HTTPException(status_code=400, detail={
+                        "error": "template_mismatch",
+                        "template": template_model,
+                        "expected_columns": tpl_cols,
+                        "found_columns": uploaded_cols,
+                        "missing_from_upload": missing_tpl
+                    })
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error leyendo plantilla en servidor: {str(e)}")
         
         # Map common aliases to expected canonical names so CSVs from different sources are accepted
         alias_map = {
@@ -285,7 +347,100 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
                     "available_columns": list(df.columns[:50])
                 }
             )
-        # Analizar primera fila (en producción se analizarían todas)
+        # If there are multiple rows, analyze them all and return grouped lists
+        if df.shape[0] > 1:
+            results = []
+            for idx, r in df.iterrows():
+                orig_row = r.to_dict()
+                mapped = map_row_to_features(orig_row)
+                # Try to extract a ground-truth label from common columns if present
+                true_label = None
+                for label_key in ['disposition', 'pl_disposition', 'classification', 'status', 'label']:
+                    if label_key in orig_row and orig_row[label_key] not in (None, ''):
+                        v = str(orig_row[label_key]).strip().upper()
+                        # Map common NASA dispositions to canonical labels
+                        if 'CONFIRMED' in v or 'TRUE' in v or 'EXOPLANET' in v:
+                            true_label = 'exoplanet'
+                        elif 'CANDID' in v:
+                            true_label = 'candidate'
+                        elif 'FALSE' in v or 'FP' in v:
+                            true_label = 'false_positive'
+                        else:
+                            # unknown mapping; skip
+                            true_label = None
+                        if true_label:
+                            break
+                # try to find a planet identifier from common columns
+                planet_name = None
+                for name_key in ['pl_name', 'planet_name', 'name', 'hostname', 'kepid', 'tic', 'id']:
+                    if name_key in orig_row and orig_row[name_key] not in (None, ''):
+                        planet_name = str(orig_row[name_key])
+                        break
+                if planet_name is None:
+                    # fallback to row index to at least have an identifier
+                    planet_name = f'row_{idx+1}'
+                # Build AnalysisRequest-like object
+                try:
+                    req = AnalysisRequest(
+                        orbital_period=float(mapped['orbital_period']),
+                        transit_duration=float(mapped['transit_duration']),
+                        transit_depth=float(mapped['transit_depth']),
+                        stellar_radius=float(mapped['stellar_radius']),
+                        stellar_mass=float(mapped.get('stellar_mass', 1.0)),
+                        stellar_temperature=float(mapped.get('stellar_temperature', 5778.0))
+                    )
+                except Exception:
+                    # if mapping failed, skip this row with an error entry
+                    results.append({
+                        "input": mapped,
+                        "prediction": None,
+                        "confidence": 0.0,
+                        "probability_distribution": None,
+                        "error": "invalid_row_mapping"
+                    })
+                    continue
+
+                # Use existing predict logic (may call model or dummy)
+                try:
+                    resp = await predict_exoplanet(req)
+                    results.append({
+                        "planet": planet_name,
+                        "input": mapped,
+                        "prediction": resp.prediction,
+                        "confidence": resp.confidence,
+                        "probability_distribution": resp.probability_distribution,
+                        "true_label": true_label
+                    })
+                except HTTPException as he:
+                    # include error detail
+                    results.append({
+                        "planet": planet_name,
+                        "input": mapped,
+                        "prediction": None,
+                        "confidence": 0.0,
+                        "probability_distribution": None,
+                        "true_label": true_label,
+                        "error": getattr(he, 'detail', str(he))
+                    })
+
+            # build grouped lists
+            groups = {"exoplanet": [], "candidate": [], "false_positive": []}
+            for r in results:
+                pred = r.get('prediction')
+                if pred == 'exoplanet':
+                    groups['exoplanet'].append(r)
+                elif pred == 'candidate':
+                    groups['candidate'].append(r)
+                elif pred == 'false_positive':
+                    groups['false_positive'].append(r)
+
+            # sanitize for JSON
+            safe_results = make_json_safe(results)
+            safe_groups = make_json_safe(groups)
+
+            return {"rows": safe_results, "groups": safe_groups}
+
+        # Analizar primera fila (legacy behavior: analyze first row and return AnalysisResponse)
         row = df.iloc[0]
 
         def compute_transit_depth_from_row(r):
@@ -545,6 +700,43 @@ def locate_first_existing(paths):
     return None
 
 
+def read_csv_headers_skipping_comments(path, max_search=200):
+    """Return list of header columns for a CSV file, skipping leading blank/comment lines.
+    This ensures template CSVs that include initial comment lines are parsed correctly.
+    """
+    try:
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.read().splitlines()
+
+        # skip initial blank/comment lines
+        start = 0
+        while start < len(lines) and (lines[start].strip() == '' or lines[start].lstrip().startswith('#')):
+            start += 1
+
+        # search for header within a window
+        header_idx = None
+        window_end = min(len(lines), start + max_search)
+        lower_lines = [l.lower() for l in lines]
+        for j in range(start, window_end):
+            l = lower_lines[j]
+            if ',' in l or '\t' in l:
+                header_idx = j
+                break
+        if header_idx is None:
+            header_idx = start
+
+        cleaned_text = '\n'.join(lines[header_idx:])
+        try:
+            df = pd.read_csv(io.StringIO(cleaned_text), nrows=0)
+            return [c.lower() for c in list(df.columns)]
+        except Exception:
+            # fallback: try python engine
+            df = pd.read_csv(io.StringIO(cleaned_text), sep=None, engine='python', nrows=0, on_bad_lines='skip')
+            return [c.lower() for c in list(df.columns)]
+    except Exception:
+        return []
+
+
 def load_joblib_for_model(name: str):
     info = MODEL_INFO.get(name.lower())
     if not info:
@@ -620,7 +812,21 @@ async def get_template_csv(model_name: str):
         raise HTTPException(status_code=404, detail="CSV de plantilla no encontrado para este modelo")
 
     try:
-        df = pd.read_csv(path, nrows=10)
+        # Read template preview skipping possible header comments
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            text = f.read()
+
+        # skip comment lines same way as upload
+        lines = text.splitlines()
+        start = 0
+        while start < len(lines) and (lines[start].strip() == '' or lines[start].lstrip().startswith('#')):
+            start += 1
+        cleaned_text = '\n'.join(lines[start:])
+        try:
+            df = pd.read_csv(io.StringIO(cleaned_text))
+        except Exception:
+            df = pd.read_csv(io.StringIO(cleaned_text), sep=None, engine='python', on_bad_lines='skip')
+
         return {"template_preview": df.head(10).fillna('').to_dict(orient='records')}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error leyendo plantilla CSV: {str(e)}")
@@ -797,7 +1003,7 @@ async def predict_with_model(request: AnalysisRequest, model: Optional[str] = No
 
 
 @router.post('/predict-batch')
-async def predict_batch(file: UploadFile = File(...), model: Optional[str] = None):
+async def predict_batch(file: UploadFile = File(...), model: Optional[str] = None, template_model: Optional[str] = Form(None)):
     """Process an uploaded CSV and return predictions for each row using the selected model.
     The uploaded CSV can have different column names; we try to map common 'koi_*' columns.
     """
@@ -811,6 +1017,32 @@ async def predict_batch(file: UploadFile = File(...), model: Optional[str] = Non
             df = pd.read_csv(io.StringIO(text))
         except Exception:
             df = pd.read_csv(io.StringIO(text), sep=None, engine='python', on_bad_lines='skip')
+
+        # Optional: enforce template matching
+        if template_model:
+            info = MODEL_INFO.get(template_model.lower())
+            if not info:
+                raise HTTPException(status_code=400, detail={"error": "unknown_template", "template": template_model})
+            tpl_path = locate_first_existing(info.get('csv_templates', []))
+            if not tpl_path:
+                raise HTTPException(status_code=400, detail={"error": "template_not_found_on_server", "template": template_model})
+            try:
+                tpl_df = pd.read_csv(tpl_path, nrows=0)
+                tpl_cols = [c.lower() for c in list(tpl_df.columns)]
+                uploaded_cols = [c.lower() for c in list(df.columns)]
+                missing_tpl = [c for c in tpl_cols if c not in uploaded_cols]
+                if missing_tpl:
+                    raise HTTPException(status_code=400, detail={
+                        "error": "template_mismatch",
+                        "template": template_model,
+                        "expected_columns": tpl_cols,
+                        "found_columns": uploaded_cols,
+                        "missing_from_upload": missing_tpl
+                    })
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error leyendo plantilla en servidor: {str(e)}")
 
         if df.shape[0] == 0:
             raise HTTPException(status_code=400, detail="CSV vacío")
