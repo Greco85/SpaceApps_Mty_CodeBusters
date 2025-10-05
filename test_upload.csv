@@ -1,0 +1,2 @@
+name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature
+Test-Exoplanet-001,10,2,0.002,1.0,1.0,5800
