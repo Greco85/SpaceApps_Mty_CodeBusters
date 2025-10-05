@@ -73,8 +73,43 @@ class MongoDB:
             return []
     
     async def insert_exoplanet(self, exoplanet_data: Dict[str, Any]) -> bool:
-        """Insertar un nuevo exoplaneta"""
+        """Insertar un nuevo exoplaneta, evitando duplicados por nombre y coordenadas"""
         try:
+            name = exoplanet_data.get('name', '')
+            
+            # 1. Verificar si ya existe un exoplaneta con el mismo nombre
+            if name:
+                existing_by_name = await self.exoplanets_collection.find_one({"name": name})
+                if existing_by_name:
+                    logger.info(f"Exoplaneta con nombre '{name}' ya existe, saltando inserción")
+                    return False  # No es error, pero no insertamos duplicado
+            
+            # 2. Verificar si ya existe un exoplaneta con las mismas coordenadas
+            coords = exoplanet_data.get('coordinates', {})
+            ra = coords.get('rightAscension')
+            dec = coords.get('declination')
+            
+            if ra is not None and dec is not None:
+                # Buscar coordenadas similares (con tolerancia de 0.1 grados)
+                existing_by_coords = await self.exoplanets_collection.find_one({
+                    "coordinates.rightAscension": {"$gte": ra - 0.1, "$lte": ra + 0.1},
+                    "coordinates.declination": {"$gte": dec - 0.1, "$lte": dec + 0.1}
+                })
+                
+                if existing_by_coords:
+                    # Si existe, ajustar coordenadas ligeramente
+                    import random
+                    import math
+                    
+                    # Generar offset aleatorio pequeño
+                    offset_ra = random.uniform(-1, 1)
+                    offset_dec = random.uniform(-1, 1)
+                    
+                    exoplanet_data['coordinates']['rightAscension'] = (ra + offset_ra) % 360
+                    exoplanet_data['coordinates']['declination'] = max(-90, min(90, dec + offset_dec))
+                    
+                    logger.info(f"Ajustando coordenadas para {name}: RA={exoplanet_data['coordinates']['rightAscension']:.2f}, Dec={exoplanet_data['coordinates']['declination']:.2f}")
+            
             result = await self.exoplanets_collection.insert_one(exoplanet_data)
             return result.inserted_id is not None
         except Exception as e:

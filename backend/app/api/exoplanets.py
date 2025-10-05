@@ -1,7 +1,10 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 from typing import List, Dict, Any, Optional
 import logging
+import tempfile
+import os
 from app.database.mongodb import mongodb
+from app.utils.csv_mapper import CSVExoplanetMapper
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -116,3 +119,59 @@ async def get_exoplanet_by_id(exoplanet_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error obteniendo exoplaneta por ID: {e}")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
+
+@router.post("/exoplanets/upload-csv")
+async def upload_csv_file(file: UploadFile = File(...), mission_type: str = Form(None)):
+    """
+    Subir archivo CSV y procesar exoplanetas para guardar en MongoDB
+    """
+    try:
+        # Validar tipo de archivo
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="Solo se permiten archivos CSV")
+        
+        # Crear archivo temporal
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as temp_file:
+            content = await file.read()
+            temp_file.write(content)
+            temp_file_path = temp_file.name
+        
+        try:
+            # Procesar CSV
+            mapper = CSVExoplanetMapper()
+            # Usar mission_type del parámetro si está disponible, sino detectar automáticamente
+            detected_mission_type = mission_type if mission_type else mapper.detect_mission_type_from_file(temp_file_path)
+            exoplanets = mapper.process_csv(temp_file_path, detected_mission_type)
+            
+            if not exoplanets:
+                raise HTTPException(status_code=400, detail="No se encontraron exoplanetas válidos en el archivo")
+            
+            # Insertar en MongoDB
+            inserted_count = 0
+            for exoplanet in exoplanets:
+                try:
+                    success = await mongodb.insert_exoplanet(exoplanet)
+                    if success:
+                        inserted_count += 1
+                except Exception as e:
+                    logger.warning(f"Error insertando exoplaneta {exoplanet.get('name', 'unknown')}: {e}")
+                    continue
+            
+            return {
+                "message": f"Archivo procesado exitosamente",
+                "total_processed": len(exoplanets),
+                "inserted": inserted_count,
+                "filename": file.filename,
+                "mission_type": detected_mission_type
+            }
+            
+        finally:
+            # Limpiar archivo temporal
+            if os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error procesando archivo CSV: {e}")
+        raise HTTPException(status_code=500, detail=f"Error procesando archivo: {str(e)}")

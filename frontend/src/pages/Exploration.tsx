@@ -27,7 +27,6 @@ const Exploration: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [templatePreview, setTemplatePreview] = useState<any[] | null>(null);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isExoplanetModalOpen, setIsExoplanetModalOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
@@ -35,6 +34,7 @@ const Exploration: React.FC = () => {
   const [currentMessage, setCurrentMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
   const [stats, setStats] = useState<ExoplanetStats>({
     total: 0,
     exoplanets: 0,
@@ -179,8 +179,8 @@ const Exploration: React.FC = () => {
     { size: 'Sub-Tierras', count: 45 }
   ];
 
-  // Handle file upload
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle CSV upload to MongoDB
+  const handleCSVUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -191,31 +191,90 @@ const Exploration: React.FC = () => {
       const form = new FormData();
       form.append('file', file, file.name);
 
+      const res = await fetch('http://localhost:8000/api/v1/exoplanets/upload-csv', {
+        method: 'POST',
+        body: form,
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Error del servidor: ${res.status} - ${errorText}`);
+      }
+
+      const result = await res.json();
+      console.log('Archivo procesado:', result);
+      
+      // Mostrar resultado
+      alert(`Archivo procesado exitosamente!\n\n` +
+            `Archivo: ${result.filename}\n` +
+            `Misión: ${result.mission_type.toUpperCase()}\n` +
+            `Procesados: ${result.total_processed} exoplanetas\n` +
+            `Insertados: ${result.inserted} en MongoDB Atlas\n\n` +
+            `Recarga la página para ver los nuevos exoplanetas en el mapa.`);
+      
+      // Recargar datos de exoplanetas
+      await loadExoplanetData();
+      
+    } catch (err: any) {
+      console.error('Error subiendo CSV:', err);
+      alert('Error procesando archivo CSV: ' + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Handle file selection (only sets the file, doesn't analyze)
+  const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setAnalysisResult(null); // Reset previous results
+    }
+  };
+
+  // Handle AI analysis (separate function)
+  const handleAIAnalysis = async () => {
+    if (!selectedFile) {
+      alert('Selecciona un archivo primero');
+      return;
+    }
+
+    if (!selectedModel) {
+      alert('Selecciona un modelo primero');
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const form = new FormData();
+      form.append('file', selectedFile, selectedFile.name);
+
       const res = await fetch('/api/v1/analysis/upload', {
         method: 'POST',
         body: form,
       });
 
-          if (!res.ok) {
-            // Try to read json error body for structured missing_columns info
-            try {
-              const j = await res.json();
-              const detail = j?.detail;
-              if (detail && detail.error === 'missing_columns') {
-                // set state and return immediately so modal shows without relying on async catch timing
-                setUploadErrorDetail(detail);
-                setIsUploading(false);
-                return;
-              }
-              // fallback: stringify
-              throw new Error(`Server error: ${res.status} - ${JSON.stringify(j)}`);
-            } catch (e: any) {
-              // if parsing failed, throw generic
-              throw new Error(`Server error: ${res.status}`);
-            }
+      if (!res.ok) {
+        // Try to read json error body for structured missing_columns info
+        try {
+          const j = await res.json();
+          const detail = j?.detail;
+          if (detail && detail.error === 'missing_columns') {
+            // set state and return immediately so modal shows without relying on async catch timing
+            setUploadErrorDetail(detail);
+            setIsUploading(false);
+            return;
           }
+          // fallback: stringify
+          throw new Error(`Server error: ${res.status} - ${JSON.stringify(j)}`);
+        } catch (e: any) {
+          // if parsing failed, throw generic
+          throw new Error(`Server error: ${res.status}`);
+        }
+      }
 
-          const json = await res.json();
+      const json = await res.json();
       setAnalysisResult({
         prediction: json.prediction,
         confidence: json.confidence,
@@ -226,7 +285,10 @@ const Exploration: React.FC = () => {
           stellar_radius: json.features_analyzed?.stellar_radius || 0,
         }
       });
-      } catch (err: any) {
+      
+      // Avanzar al paso 3 para mostrar resultados
+      setCurrentStep(3);
+    } catch (err: any) {
       console.error('Upload error', err);
       alert('Error al procesar el archivo: ' + err.message);
     } finally {
@@ -234,73 +296,112 @@ const Exploration: React.FC = () => {
     }
   };
 
-  const fetchTemplate = async () => {
-    if (!selectedModel) return;
-    setIsUploading(true);
-    try {
-      const res = await fetch(`/api/v1/analysis/template/${selectedModel}`);
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || 'Error fetching template');
-      }
-      const j = await res.json();
-      setTemplatePreview(j.template_preview || null);
-    } catch (err: any) {
-      alert('No se pudo cargar plantilla: ' + err.message);
-    } finally {
-      setIsUploading(false);
+  const downloadTemplate = () => {
+    if (!selectedModel) return alert('Selecciona un modelo primero');
+    
+    // Crear CSV de plantilla basado en el modelo seleccionado
+    let csvContent = '';
+    let filename = '';
+    
+    if (selectedModel === 'tess') {
+      filename = 'template_tess.csv';
+      csvContent = 'name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature\n';
+      csvContent += 'TOI-1234,15.5,3.2,0.0015,1.2,1.1,5800\n';
+    } else if (selectedModel === 'kepler') {
+      filename = 'template_kepler.csv';
+      csvContent = 'name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature\n';
+      csvContent += 'Kepler-1234,25.8,4.1,0.0023,0.9,0.8,5200\n';
+    } else if (selectedModel === 'k2') {
+      filename = 'template_k2.csv';
+      csvContent = 'name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature\n';
+      csvContent += 'K2-1234,12.3,2.8,0.0018,1.1,1.0,5600\n';
+    } else {
+      filename = 'template_generic.csv';
+      csvContent = 'name,orbital_period,transit_duration,transit_depth,stellar_radius,stellar_mass,stellar_temperature\n';
+      csvContent += 'Exoplanet-001,10.0,2.0,0.002,1.0,1.0,5800\n';
     }
+    
+    // Crear y descargar archivo
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const analyzeAll = async () => {
-    if (!selectedFile) return alert('Selecciona un archivo primero');
-    if (!selectedModel) return alert('Selecciona un modelo');
+  const nextStep = () => {
+    setCurrentStep(prev => prev + 1);
+  };
+
+  const prevStep = () => {
+    setCurrentStep(prev => prev - 1);
+  };
+
+  const resetModal = () => {
+    setCurrentStep(1);
+    setIsAnalysisModalOpen(false);
+    setSelectedFile(null);
+    setAnalysisResult(null);
+  };
+
+  const handleAddToMap = async () => {
+    if (!selectedFile) {
+      alert('No hay archivo seleccionado');
+      return;
+    }
+
+    if (!selectedModel) {
+      alert('No hay modelo seleccionado');
+      return;
+    }
+
     setIsUploading(true);
+
     try {
       const form = new FormData();
       form.append('file', selectedFile, selectedFile.name);
-      form.append('model', selectedModel);
+      form.append('mission_type', selectedModel); // Agregar el tipo de misión seleccionado
 
-      const res = await fetch('/api/v1/analysis/predict-batch', {
+      const res = await fetch('http://localhost:8000/api/v1/exoplanets/upload-csv', {
         method: 'POST',
-        body: form
+        body: form,
       });
+
       if (!res.ok) {
-        try {
-          const j = await res.json();
-          const detail = j?.detail;
-          if (detail && detail.error === 'missing_columns') {
-            setUploadErrorDetail(detail);
-            setIsUploading(false);
-            return;
-          }
-          throw new Error(JSON.stringify(j));
-        } catch (e) {
-          throw new Error(`HTTP ${res.status}`);
-        }
+        const errorText = await res.text();
+        throw new Error(`Error del servidor: ${res.status} - ${errorText}`);
       }
-      const j = await res.json();
-      if (j.rows && j.rows.length > 0) {
-        const first = j.rows[0];
-        setAnalysisResult({
-          prediction: first.prediction,
-          confidence: first.confidence,
-          features: {
-            orbital_period: first.input.orbital_period || 0,
-            transit_duration: first.input.transit_duration || 0,
-            transit_depth: first.input.transit_depth || 0,
-            stellar_radius: first.input.stellar_radius || 0,
-          }
-        });
-      } else {
-        alert('No se obtuvieron predicciones');
-      }
+
+      const result = await res.json();
+      console.log('Archivo procesado:', result);
+      
+      // Mostrar resultado con la misión correcta
+      const missionDisplay = selectedModel.toUpperCase();
+      alert(`Archivo agregado al mapa exitosamente!\n\n` +
+            `Archivo: ${result.filename}\n` +
+            `Misión: ${missionDisplay}\n` +
+            `Procesados: ${result.total_processed} exoplanetas\n` +
+            `Insertados: ${result.inserted} en MongoDB Atlas\n\n` +
+            `Recarga la página para ver los nuevos exoplanetas en el mapa.`);
+      
+      // Recargar datos de exoplanetas
+      await loadExoplanetData();
+      
+      // Cerrar modal
+      resetModal();
+      
     } catch (err: any) {
-      alert('Error en análisis por lotes: ' + err.message);
+      console.error('Error subiendo CSV:', err);
+      alert('Error procesando archivo CSV: ' + err.message);
     } finally {
       setIsUploading(false);
     }
   };
+
 
   const handleSendMessage = async () => {
     if (!currentMessage.trim()) return;
@@ -561,10 +662,10 @@ const Exploration: React.FC = () => {
             </div>
           )}
 
-      {/* Modal de Análisis de Datos */}
+      {/* Modal de Análisis de Datos por Pasos */}
       {isAnalysisModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-space-dark border border-space-blue/30 rounded-lg max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-space-dark border border-space-blue/30 rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b border-space-blue/30">
               <h2 className="text-xl font-space font-bold text-white flex items-center space-x-2">
@@ -572,91 +673,261 @@ const Exploration: React.FC = () => {
                 <span>Análisis de Datos</span>
               </h2>
               <button
-                onClick={() => setIsAnalysisModalOpen(false)}
+                onClick={resetModal}
                 className="text-gray-400 hover:text-white transition-colors duration-200"
               >
                 <X className="h-6 w-6" />
               </button>
             </div>
 
-            {/* Modal Content */}
-            <div className="p-6 space-y-4">
-              <div className="border-2 border-dashed border-space-blue/50 rounded-lg p-4 text-center">
-                <input
-                  type="file"
-                  accept=".csv,.json"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="file-upload"
-                />
-                <label
-                  htmlFor="file-upload"
-                  className="cursor-pointer flex flex-col items-center space-y-2"
-                >
-                  <FileText className="h-8 w-8 text-gray-400" />
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {selectedFile ? selectedFile.name : 'Selecciona archivo CSV'}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Formatos: CSV, JSON
-                    </p>
+            {/* Progress Steps */}
+            <div className="px-6 py-4 border-b border-space-blue/30">
+              <div className="flex items-center justify-between">
+                {[1, 2, 3].map((step) => (
+                  <div key={step} className="flex items-center">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                      step <= currentStep 
+                        ? 'bg-exoplanet-orange text-white' 
+                        : 'bg-gray-700 text-gray-400'
+                    }`}>
+                      {step}
+                    </div>
+                    <div className="ml-3 hidden sm:block">
+                      <p className={`text-sm font-medium ${
+                        step <= currentStep ? 'text-white' : 'text-gray-400'
+                      }`}>
+                        {step === 1 ? 'Seleccionar Modelo' : 
+                         step === 2 ? 'Subir Archivo' : 'Ver Resultados'}
+                      </p>
+                    </div>
+                    {step < 3 && (
+                      <div className={`w-16 h-0.5 mx-4 ${
+                        step < currentStep ? 'bg-exoplanet-orange' : 'bg-gray-700'
+                      }`} />
+                    )}
                   </div>
-                </label>
+                ))}
               </div>
+            </div>
 
-              <div className="flex items-center space-x-2">
-                <select
-                  value={selectedModel || ''}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="flex-1 px-3 py-2 bg-gray-800 text-white rounded"
-                >
-                  {models.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-                <button onClick={fetchTemplate} className="px-3 py-2 bg-blue-600 text-white rounded">Plantilla</button>
-              </div>
-
-              <div className="mt-3 flex space-x-2">
-                <button
-                  onClick={() => document.getElementById('file-upload')?.click()}
-                  className="flex-1 bg-exoplanet-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors duration-200"
-                >
-                  {isUploading ? 'Analizando...' : 'Seleccionar Archivo'}
-                </button>
-                <button
-                  onClick={analyzeAll}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors duration-200"
-                >
-                  Analizar todo
-                </button>
-              </div>
-
-              {templatePreview && (
-                <div className="mt-4 p-2 bg-gray-900 rounded max-h-40 overflow-auto">
-                  <table className="w-full text-xs">
-                    <tbody>
-                      {templatePreview.map((r, i) => (
-                        <tr key={i} className="border-b border-gray-800"><td className="px-2 py-1">{String(Object.values(r)[0])}</td></tr>
+            {/* Modal Content por Pasos */}
+            <div className="p-6">
+              {/* Paso 1: Seleccionar Modelo */}
+              {currentStep === 1 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold text-white mb-2">Selecciona el Modelo de IA</h3>
+                    <p className="text-gray-400 text-sm">Elige el algoritmo entrenado para tu tipo de datos</p>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-gray-300">Modelo:</label>
+                    <select
+                      value={selectedModel || ''}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-800 text-white rounded-lg border border-gray-600 focus:border-exoplanet-orange focus:outline-none"
+                    >
+                      <option value="">Selecciona un modelo...</option>
+                      {models.map(m => (
+                        <option key={m} value={m}>
+                          {m.toUpperCase()} - {m === 'tess' ? 'TESS Mission' : m === 'kepler' ? 'Kepler Mission' : m === 'k2' ? 'K2 Mission' : 'Generic Model'}
+                        </option>
                       ))}
-                    </tbody>
-                  </table>
+                    </select>
+                  </div>
+
+                  {selectedModel && (
+                    <div className="bg-space-blue/20 rounded-lg p-4">
+                      <h4 className="font-semibold text-exoplanet-orange mb-2">Información del Modelo:</h4>
+                      <p className="text-sm text-gray-300">
+                        {selectedModel === 'tess' && 'Modelo entrenado con datos de la misión TESS de la NASA para detectar exoplanetas en estrellas cercanas.'}
+                        {selectedModel === 'kepler' && 'Modelo entrenado con datos de la misión Kepler para identificar tránsitos planetarios.'}
+                        {selectedModel === 'k2' && 'Modelo entrenado con datos de la misión K2 para análisis de curvas de luz estelar.'}
+                        {selectedModel !== 'tess' && selectedModel !== 'kepler' && selectedModel !== 'k2' && 'Modelo genérico para análisis de exoplanetas.'}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end">
+                    <button
+                      onClick={nextStep}
+                      disabled={!selectedModel}
+                      className="bg-exoplanet-orange hover:bg-orange-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200"
+                    >
+                      Continuar
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {analysisResult && (
-                <div className="mt-4 p-4 bg-space-blue/20 rounded-lg">
-                  <h4 className="font-semibold mb-2">Resultado:</h4>
-                  <div className="space-y-1 text-sm">
-                    <p><strong>Predicción:</strong> {analysisResult.prediction}</p>
-                    <p><strong>Confianza:</strong> {(analysisResult.confidence * 100).toFixed(1)}%</p>
+              {/* Paso 2: Subir Archivo */}
+              {currentStep === 2 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold text-white mb-2">Sube tu Archivo CSV</h3>
+                    <p className="text-gray-400 text-sm">Selecciona el archivo con los datos del exoplaneta</p>
+                  </div>
+
+                  <div className="border-2 border-dashed border-space-blue/50 rounded-lg p-6 text-center">
+                    <input
+                      type="file"
+                      accept=".csv,.json"
+                      onChange={handleFileSelection}
+                      className="hidden"
+                      id="file-upload"
+                    />
+                    <label
+                      htmlFor="file-upload"
+                      className="cursor-pointer flex flex-col items-center space-y-3"
+                    >
+                      <FileText className="h-12 w-12 text-gray-400" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">
+                          {selectedFile ? selectedFile.name : 'Haz clic para seleccionar archivo'}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Formatos soportados: CSV, JSON
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div className="bg-gray-800 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-exoplanet-orange">¿No tienes un archivo?</h4>
+                      <button
+                        onClick={downloadTemplate}
+                        className="text-blue-400 hover:text-blue-300 text-sm underline"
+                      >
+                        Descargar Plantilla
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Descarga una plantilla CSV con el formato correcto para {selectedModel?.toUpperCase()} y llénala con tus datos.
+                    </p>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <button
+                      onClick={prevStep}
+                      className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      onClick={handleAIAnalysis}
+                      disabled={isUploading || !selectedFile}
+                      className="bg-exoplanet-orange hover:bg-orange-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200"
+                    >
+                      {isUploading ? 'Analizando...' : 'Analizar con IA'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Paso 3: Ver Resultados */}
+              {currentStep === 3 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold text-white mb-2">Resultados del Análisis</h3>
+                    <p className="text-gray-400 text-sm">Predicción generada por el modelo de IA</p>
+                  </div>
+
+                  {analysisResult ? (
+                    <div className="bg-space-blue/20 rounded-lg p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <h4 className="font-semibold text-exoplanet-orange mb-3">Predicción Principal</h4>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-300">Clasificación:</span>
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                analysisResult.prediction === 'exoplanet' ? 'bg-green-900 text-green-300' :
+                                analysisResult.prediction === 'candidate' ? 'bg-yellow-900 text-yellow-300' :
+                                'bg-red-900 text-red-300'
+                              }`}>
+                                {analysisResult.prediction === 'exoplanet' ? 'Exoplaneta Confirmado' :
+                                 analysisResult.prediction === 'candidate' ? 'Candidato' :
+                                 'Falso Positivo'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-300">Confianza:</span>
+                              <span className="text-white font-semibold">
+                                {(analysisResult.confidence * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <h4 className="font-semibold text-exoplanet-orange mb-3">Características Analizadas</h4>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">Período Orbital:</span>
+                              <span className="text-white">{analysisResult.features.orbital_period} días</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">Duración Tránsito:</span>
+                              <span className="text-white">{analysisResult.features.transit_duration}h</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">Profundidad:</span>
+                              <span className="text-white">{analysisResult.features.transit_depth}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">Radio Estelar:</span>
+                              <span className="text-white">{analysisResult.features.stellar_radius} R☉</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-exoplanet-orange mx-auto mb-4"></div>
+                      <p className="text-gray-400">Procesando análisis...</p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between">
+                    <button
+                      onClick={prevStep}
+                      className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200"
+                    >
+                      Anterior
+                    </button>
+                    <div className="space-x-3">
+                      <button
+                        onClick={handleAddToMap}
+                        disabled={isUploading}
+                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200"
+                      >
+                        {isUploading ? 'Agregando...' : 'Agregar al Mapa'}
+                      </button>
+                      <button
+                        onClick={resetModal}
+                        className="bg-exoplanet-orange hover:bg-orange-600 text-white px-6 py-2 rounded-lg font-semibold transition-colors duration-200"
+                      >
+                        Nuevo Análisis
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
             </div>
-
           </div>
         </div>
       )}
+
+      {/* Input oculto para CSV upload */}
+      <input
+        type="file"
+        accept=".csv"
+        onChange={handleCSVUpload}
+        className="hidden"
+        id="csv-upload"
+      />
 
       {/* Upload error modal (missing columns) */}
       {uploadErrorDetail && (

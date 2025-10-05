@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 interface Exoplanet {
-  id: string | number;
+  id: string;
   name: string;
   classification: 'exoplanet' | 'candidate' | 'false_positive';
   coordinates: {
