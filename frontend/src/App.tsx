@@ -5,23 +5,17 @@ import './App.css';
 // Components
 import Navbar from './components/Navbar.tsx';
 import Home from './pages/Home.tsx';
-import Analysis from './pages/Analysis.tsx';
-import Dashboard from './pages/Dashboard.tsx';
-import About from './pages/About.tsx';
-import ExoplanetMapPage from './pages/ExoplanetMapPage.tsx';
+import Exploration from './pages/Exploration.tsx';
 
 function App() {
   return (
     <Router>
       <div className="min-h-screen bg-space-dark text-white">
         <Navbar />
-        <main className="container mx-auto px-4 py-8">
+        <main>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/analysis" element={<Analysis />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/map" element={<ExoplanetMapPage />} />
-            <Route path="/about" element={<About />} />
+            <Route path="/exploration" element={<Exploration />} />
           </Routes>
         </main>
       </div>

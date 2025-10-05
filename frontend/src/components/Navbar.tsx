@@ -1,20 +1,17 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, Home, BarChart3, Info, Map } from 'lucide-react';
+import { Search, Home, Compass } from 'lucide-react';
 
 const Navbar: React.FC = () => {
   const location = useLocation();
 
   const navItems = [
     { path: '/', label: 'Inicio', icon: Home },
-    { path: '/analysis', label: 'Análisis', icon: Search },
-    { path: '/map', label: 'Mapa', icon: Map },
-    { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
-    { path: '/about', label: 'Acerca de', icon: Info },
+    { path: '/exploration', label: 'Exploración', icon: Compass },
   ];
 
   return (
-    <nav className="bg-space-dark/90 backdrop-blur-sm border-b border-space-blue/30">
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-space-dark border-b border-space-blue/30">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
