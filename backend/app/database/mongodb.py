@@ -183,6 +183,58 @@ class MongoDB:
                 "discoveryYear": 2009,
                 "mission": "Ground-based",
                 "stellarTemperature": 3026
+            },
+            {
+                "name": "TOI-1234b",
+                "classification": "false_positive",
+                "coordinates": {
+                    "rightAscension": 45.123,
+                    "declination": -23.456
+                },
+                "radius": 0.8,
+                "orbitalPeriod": 2.1,
+                "discoveryYear": 2021,
+                "mission": "TESS",
+                "stellarTemperature": 4200
+            },
+            {
+                "name": "Kepler-1235b",
+                "classification": "exoplanet",
+                "coordinates": {
+                    "rightAscension": 290.789,
+                    "declination": 38.234
+                },
+                "radius": 1.2,
+                "orbitalPeriod": 12.5,
+                "discoveryYear": 2016,
+                "mission": "Kepler",
+                "stellarTemperature": 5800
+            },
+            {
+                "name": "K2-1236b",
+                "classification": "candidate",
+                "coordinates": {
+                    "rightAscension": 180.456,
+                    "declination": 15.678
+                },
+                "radius": 2.1,
+                "orbitalPeriod": 25.3,
+                "discoveryYear": 2017,
+                "mission": "K2",
+                "stellarTemperature": 3600
+            },
+            {
+                "name": "False-Positive-001",
+                "classification": "false_positive",
+                "coordinates": {
+                    "rightAscension": 75.234,
+                    "declination": -45.123
+                },
+                "radius": 3.5,
+                "orbitalPeriod": 150.0,
+                "discoveryYear": 2020,
+                "mission": "TESS",
+                "stellarTemperature": 2800
             }
         ]
         

@@ -170,18 +170,6 @@ const Home: React.FC = () => {
                 </button>
               </div>
 
-              <div className="text-center">
-                <div className="w-20 h-20 bg-blue-400/20 rounded-full mx-auto mb-3 flex items-center justify-center">
-                  <span className="text-blue-400 font-bold text-lg">A</span>
-                </div>
-                <h3 className="font-semibold text-white text-sm">Arely Bernal</h3>
-                <p className="text-gray-400 text-xs">Developer</p>
-                <p className="text-blue-400 text-xs mt-1">UI/UX</p>
-                <button className="mt-2 px-2 py-1 bg-blue-400/20 hover:bg-blue-400/30 text-blue-400 text-xs rounded-full transition-colors duration-200 flex items-center space-x-1 mx-auto">
-                  <Download className="h-3 w-3" />
-                  <span>CV</span>
-                </button>
-              </div>
 
               <div className="text-center">
                 <div className="w-20 h-20 bg-pink-400/20 rounded-full mx-auto mb-3 flex items-center justify-center">
