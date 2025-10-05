@@ -3,6 +3,7 @@ import axios from 'axios';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Upload, FileText, BarChart3, AlertCircle, Target, Globe, Star, TrendingUp, Zap, Compass, Search, HelpCircle, X, MessageCircle, Send, Minimize2, Bot, Sparkles, Calendar, MapPin, Rocket, Thermometer } from 'lucide-react';
 import Chatbot from '../components/Chatbot.tsx';
+import SimpleMarkdown from '../components/SimpleMarkdown.tsx';
 import ExoplanetMap3D from '../components/ExoplanetMap3D.tsx';
 
 
@@ -617,7 +618,7 @@ const Exploration: React.FC = () => {
                           : 'bg-space-dark/50 text-gray-200 border border-space-blue/20'
                       }`}
                     >
-                      <p className="text-sm">{message.content}</p>
+                      <SimpleMarkdown content={message.content} />
                     </div>
                   </div>
                 ))}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Planet3D from '../components/Planet3D.tsx';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Globe, Star, Target } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Globe, Star, Target, AlertTriangle } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
   const [simResult, setSimResult] = useState<any | null>(null);
@@ -71,13 +71,7 @@ const Dashboard: React.FC = () => {
     return `${(v * 100).toFixed(1)}%`;
   };
 
-  // Derived trend metrics for Tasa de descubrimiento (per año)
-  const trendList = trends || [];
-  const latestTrend = trendList.length ? trendList.reduce((a, b) => (a.year > b.year ? a : b)) : null;
-  const previousTrend = trendList.length > 1 ? trendList.slice().sort((a: any, b: any) => b.year - a.year)[1] : null;
-  const averagePerYear = trendList.length ? Math.round(trendList.reduce((s: number, t: any) => s + (t.discoveries || 0), 0) / trendList.length) : null;
-  const discoveryRateNumber = selectedTrendYear ? (trendList.find(t => t.year === selectedTrendYear)?.discoveries ?? 0) : (averagePerYear ?? null);
-  const discoveryChangePercent = (latestTrend && previousTrend && previousTrend.discoveries) ? ((latestTrend.discoveries - previousTrend.discoveries) / Math.max(1, previousTrend.discoveries)) * 100 : null;
+  // trends data is available for charts; per-card discovery rate removed (not used)
 
 
 
@@ -113,6 +107,8 @@ const Dashboard: React.FC = () => {
 
   const exoplanetsChange = stats && typeof stats.exoplanets_change_text === 'string' ? stats.exoplanets_change_text : '-';
   const candidatesChangeText = stats && typeof stats.candidates_change_text === 'string' ? stats.candidates_change_text : '-';
+  const falsePositivesValue = getNumericValue(batchGroups?.false_positive, stats?.false_positives_total);
+  const falsePositivesChange = stats && typeof stats.false_positives_change_text === 'string' ? stats.false_positives_change_text : '-';
 
   // Annual discovery rate computation (derived from `trends`)
   const byYear: Record<number, number> = {};
@@ -282,7 +278,7 @@ const Dashboard: React.FC = () => {
             <div className="overflow-x-auto">
               <div className="inline-block min-w-full align-middle">
                 <div className="overflow-y-auto max-h-80 border border-space-blue/30 rounded">
-                  <table className="min-w-full divide-y divide-gray-700">
+                   <table className="min-w-full divide-y divide-gray-700">
                     <thead className="bg-space-dark/60 sticky top-0">
                       <tr>
                         <th className="px-4 py-2 text-left text-sm font-medium text-gray-300">Planeta</th>
@@ -341,13 +337,13 @@ const Dashboard: React.FC = () => {
           />
         </>
 
-        {/* Annual discovery stat (uses precomputed annualRate / annualChangePercent / annualPositive) */}
+        {/* False positives stat - interactive, filters results table on click */}
         <StatCard
-          icon={TrendingUp}
-          title="Tasa de Descubrimiento (anual)"
-          value={annualRate !== null ? `${annualRate}/año` : (discoveryRateNumber !== null ? `${discoveryRateNumber}/año` : '-')}
-          change={annualChangePercent !== null ? `${annualChangePercent > 0 ? '+' : ''}${annualChangePercent.toFixed(1)}%` : (discoveryChangePercent !== null ? `${discoveryChangePercent > 0 ? '+' : ''}${discoveryChangePercent.toFixed(1)}%` : '-')}
-          positive={annualChangePercent !== null ? annualChangePercent >= 0 : annualPositive}
+          icon={AlertTriangle}
+          title="Falsos Positivos"
+          value={falsePositivesValue}
+          change={falsePositivesChange}
+          positive={batchGroups ? (typeof batchGroups.false_positive === 'number' ? batchGroups.false_positive === 0 : false) : false}
         />
       </div>
 
@@ -378,27 +374,7 @@ const Dashboard: React.FC = () => {
           </ResponsiveContainer>
         </div>
 
-        {/* Classification Distribution */}
-        <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6">
-          <h3 className="text-xl font-semibold mb-4">Distribución de Clasificaciones</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={missions ? missions.map((m: any) => ({ name: m.mission, value: m.total_discoveries, color: '#6EE7B7' })) : []}
-                cx="50%"
-                cy="50%"
-                outerRadius={100}
-                dataKey="value"
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-              >
-                {(missions || []).map((entry: any, index: number) => (
-                  <Cell key={`cell-${index}`} fill={index === 0 ? '#10B981' : (index === 1 ? '#FDE047' : '#EF4444')} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+        {/* Distribución de Clasificaciones eliminada (se duplica con Comparación por Misión) */}
       </div>
 
       {/* Mission Comparison */}
@@ -469,10 +445,17 @@ interface StatCardProps {
   value: string;
   change: string;
   positive: boolean;
+  onClick?: () => void;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ icon: Icon, title, value, change, positive }) => (
-  <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6">
+const StatCard: React.FC<StatCardProps> = ({ icon: Icon, title, value, change, positive, onClick }) => (
+  <div
+    className={`bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6 ${onClick ? 'cursor-pointer hover:scale-[1.01] transition-transform' : ''}`}
+    onClick={onClick}
+    role={onClick ? 'button' : undefined}
+    tabIndex={onClick ? 0 : undefined}
+    onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+  >
     <div className="flex items-center justify-between mb-4">
       <Icon className="h-8 w-8 text-exoplanet-orange" />
       {/* Only render the small change label when a meaningful value exists (hide '-' placeholders) */}

@@ -53,6 +53,14 @@ def predecir_exoplaneta(telescopio, datos, tipo_modelo='multiclase', modelos_car
         raise ValueError(f"Telescopio {telescopio} no disponible")
     
     entrenador_data = modelos_cargados[telescopio]
+
+    # Safety: if caller requests a model type other than 'multiclase',
+    # force fallback to 'multiclase' because the repo now trains/supplies
+    # only the multiclase artifacts. This prevents KeyError when
+    # attempting to access binary-stage models/scalers that may not exist.
+    if tipo_modelo != 'multiclase':
+        print(f"Advertencia: tipo_modelo='{tipo_modelo}' solicitado para {telescopio}, pero solo 'multiclase' está disponible. Usando 'multiclase' en su lugar.")
+        tipo_modelo = 'multiclase'
     
     # Obtener características específicas del telescopio
     if tipo_modelo == 'multiclase':
