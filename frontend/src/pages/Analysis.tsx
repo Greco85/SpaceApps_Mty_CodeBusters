@@ -21,6 +21,7 @@ const Analysis: React.FC = () => {
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [templatePreview, setTemplatePreview] = useState<any[] | null>(null);
+  const [enforceTemplate, setEnforceTemplate] = useState<boolean>(true);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -30,8 +31,10 @@ const Analysis: React.FC = () => {
     setIsUploading(true);
 
     try {
-      const form = new FormData();
-      form.append('file', file, file.name);
+  const form = new FormData();
+  form.append('file', file, file.name);
+  if (selectedModel) form.append('model', selectedModel);
+  if (enforceTemplate && selectedModel) form.append('template_model', selectedModel);
 
       const res = await fetch('/api/v1/analysis/upload', {
         method: 'POST',
@@ -116,9 +119,10 @@ const Analysis: React.FC = () => {
     if (!selectedModel) return alert('Selecciona un modelo');
     setIsUploading(true);
     try {
-      const form = new FormData();
-      form.append('file', selectedFile, selectedFile.name);
-      form.append('model', selectedModel);
+  const form = new FormData();
+  form.append('file', selectedFile, selectedFile.name);
+  if (selectedModel) form.append('model', selectedModel);
+  if (enforceTemplate && selectedModel) form.append('template_model', selectedModel);
 
       const res = await fetch('/api/v1/analysis/predict-batch', {
         method: 'POST',
