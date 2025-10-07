@@ -57,7 +57,6 @@ const Exploration: React.FC = () => {
   const [uploadErrorDetail, setUploadErrorDetail] = useState<any | null>(null);
   const [batchGroupsExpl, setBatchGroupsExpl] = useState<{exoplanet: number, candidate: number, false_positive: number} | null>(null);
   const [batchAccuracyExpl, setBatchAccuracyExpl] = useState<number | null>(null);
-  const [uploadCountsFromPrediction, setUploadCountsFromPrediction] = useState(false);
 
   // Load exoplanet data from CSV
   useEffect(() => {
@@ -275,25 +274,20 @@ const Exploration: React.FC = () => {
           const json = await res.json();
       // If backend returned multiple rows (batch), compute a summary for the modal
       if (json.rows) {
-        // Prefer server-provided predicted counts when available (to match Dashboard graphs)
+        // Prefer server-provided exhaustive CSV counts (ground-truth) when available
         let counts = { exoplanet: 0, candidate: 0, false_positive: 0 };
-        if (json.predicted_counts) {
-          const p = json.predicted_counts;
-          setUploadCountsFromPrediction(true);
+        if (json.csv_counts) {
+          const csv = json.csv_counts;
           counts = {
-            exoplanet: typeof p.exoplanet === 'number' ? p.exoplanet : 0,
-            candidate: typeof p.candidate === 'number' ? p.candidate : 0,
-            false_positive: typeof p.false_positive === 'number' ? p.false_positive : 0
+            exoplanet: typeof csv.exoplanet === 'number' ? csv.exoplanet : 0,
+            candidate: typeof csv.candidate === 'number' ? csv.candidate : 0,
+            false_positive: typeof csv.false_positive === 'number' ? csv.false_positive : 0
           };
-          // show a small hint in the modal (we'll set a transient flag)
-          setUploadErrorDetail(null);
         } else if (json.groups) {
-          setUploadCountsFromPrediction(false);
           counts.exoplanet = (json.groups.exoplanet || []).length;
           counts.candidate = (json.groups.candidate || []).length;
           counts.false_positive = (json.groups.false_positive || []).length;
         } else {
-          setUploadCountsFromPrediction(false);
           for (const r of json.rows) {
             if (r.prediction === 'exoplanet') counts.exoplanet++;
             else if (r.prediction === 'candidate') counts.candidate++;
@@ -768,9 +762,6 @@ const Exploration: React.FC = () => {
               {(batchGroupsExpl || analysisResult) && (
                 <div className="mt-4 p-4 bg-space-blue/20 rounded-lg">
                   <h4 className="font-semibold mb-2">Resultado:</h4>
-                  {uploadCountsFromPrediction && (
-                    <div className="text-sm text-indigo-300 mb-2">Números basados en la predicción del modelo</div>
-                  )}
                   {batchGroupsExpl ? (
                     <div className="grid grid-cols-2 gap-2 text-sm text-gray-100">
                       <div className="font-medium">Exoplanetas</div>

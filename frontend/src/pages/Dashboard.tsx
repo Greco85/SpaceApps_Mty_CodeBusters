@@ -15,6 +15,7 @@ const Dashboard: React.FC = () => {
   const [recent, setRecent] = useState<any[] | null>(null);
   const [batchResults, setBatchResults] = useState<Array<{planet: string, result: string, confidence?: number | null, true_label?: string | null, raw?: any}> | null>(null);
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
+  const [useCsvGroundTruth, setUseCsvGroundTruth] = useState<boolean>(false);
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [batchGroups, setBatchGroups] = useState<{exoplanet: number, candidate: number, false_positive: number} | null>(null);
   const [batchAccuracy, setBatchAccuracy] = useState<number | null>(null);
@@ -212,8 +213,16 @@ const Dashboard: React.FC = () => {
                       } as any);
                     }
                     // Prefer server-provided CSV counts (ground-truth) so numbers match the mission graphs and Exploration analysis
-                    // Prefer server-provided predicted counts so the top numbers reflect model predictions
-                    if (json.predicted_counts) {
+                    if (json.csv_counts) {
+                      const csv = json.csv_counts;
+                      const counts = {
+                        exoplanet: typeof csv.exoplanet === 'number' ? csv.exoplanet : 0,
+                        candidate: typeof csv.candidate === 'number' ? csv.candidate : 0,
+                        false_positive: typeof csv.false_positive === 'number' ? csv.false_positive : 0
+                      };
+                      setBatchGroups(counts);
+                      setUseCsvGroundTruth(true);
+                    } else if (json.predicted_counts) {
                       const p = json.predicted_counts;
                       const counts = {
                         exoplanet: typeof p.exoplanet === 'number' ? p.exoplanet : 0,
@@ -221,6 +230,7 @@ const Dashboard: React.FC = () => {
                         false_positive: typeof p.false_positive === 'number' ? p.false_positive : 0
                       };
                       setBatchGroups(counts);
+                      setUseCsvGroundTruth(false);
                     } else if (json.groups) {
                       const counts = {
                         exoplanet: (json.groups.exoplanet || []).length,
@@ -228,6 +238,7 @@ const Dashboard: React.FC = () => {
                         false_positive: (json.groups.false_positive || []).length
                       };
                       setBatchGroups(counts);
+                      setUseCsvGroundTruth(false);
                     } else {
                       // Final fallback: compute counts from predicted rows
                       const counts = { exoplanet: 0, candidate: 0, false_positive: 0 };
@@ -237,6 +248,7 @@ const Dashboard: React.FC = () => {
                         else if (r.result === 'false_positive') counts.false_positive++;
                       }
                       setBatchGroups(counts);
+                      setUseCsvGroundTruth(false);
                     }
 
                     // compute average model confidence across rows if available
@@ -353,6 +365,10 @@ const Dashboard: React.FC = () => {
                         batchResults
                           .filter((row) => {
                             if (!filterCategory) return true;
+                            if (useCsvGroundTruth) {
+                              const key = (row.true_label && String(row.true_label)) || '';
+                              return String(key) === filterCategory;
+                            }
                             const key = (row.result && String(row.result)) || '';
                             return String(key) === filterCategory;
                           })
