@@ -174,7 +174,7 @@ const Dashboard: React.FC = () => {
               <option value="">Selecciona modelo</option>
               {models.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
-            <button
+                <button
               className="px-4 py-2 bg-blue-600 text-white rounded"
               onClick={async () => {
                 const input: any = document.getElementById('file-input');
@@ -182,8 +182,33 @@ const Dashboard: React.FC = () => {
                   alert('Selecciona un archivo CSV primero');
                   return;
                 }
+                // If a model is selected, ensure the uploaded CSV filename matches the model's expected mission
                 if (!selectedModel) {
                   if (!window.confirm('No seleccionaste un modelo. Deseas continuar?')) {
+                    return;
+                  }
+                } else {
+                  try {
+                    const fname = (input.files[0] && input.files[0].name) ? String(input.files[0].name).toLowerCase() : '';
+                    const sm = String(selectedModel).toLowerCase();
+                    let expected: string | null = null;
+                    if (sm.includes('kepler')) expected = 'kepler';
+                    else if (sm.includes('k2')) expected = 'k2';
+                    else if (sm.includes('tess')) expected = 'tess';
+
+                    if (expected) {
+                      if (!fname.includes(expected)) {
+                        alert(`El archivo CSV no coincide con la plantilla seleccionada (${expected.toUpperCase()}). Por favor selecciona el CSV correcto o cambia el modelo.`);
+                        return;
+                      }
+                    } else {
+                      // Unknown model name - be conservative and block the upload
+                      alert('Modelo seleccionado no reconocido. Selecciona un modelo válido (kepler, k2, tess).');
+                      return;
+                    }
+                  } catch (e) {
+                    // If any unexpected issue happens while checking, block to be safe
+                    alert('Error al verificar el archivo y el modelo. Asegúrate de seleccionar un archivo CSV y un modelo válidos.');
                     return;
                   }
                 }
@@ -336,17 +361,8 @@ const Dashboard: React.FC = () => {
 
           {/* Results table */}
                 <div className="mt-4">
-                  {/* Interactive filters: choose which column to filter (prediction vs ground-truth) and select category */}
                   <div className="flex items-center space-x-3 mb-3">
-                      <div className="text-sm text-gray-300">Filtrar por: </div>
-                    <div className="ml-4 inline-flex items-center space-x-2">
-                      {['exoplanet','candidate','false_positive'].map(cat => (
-                        <button key={cat} className={`px-3 py-1 rounded text-sm ${filterCategory===cat ? 'bg-green-700 text-white' : 'bg-black/10 text-gray-300'}`} onClick={() => setFilterCategory(prev => prev === cat ? null : cat)}>
-                          {cat === 'exoplanet' ? 'Exoplaneta' : (cat === 'candidate' ? 'Candidato' : 'Falso Positivo')}
-                        </button>
-                      ))}
-                      <button className="px-3 py-1 rounded text-sm bg-gray-700 text-white" onClick={() => { setFilterCategory(null); }}>Limpiar</button>
-                    </div>
+                    <div className="text-sm text-gray-300">Listado de resultados</div>
                   </div>
             <div className="overflow-x-auto">
               <div className="inline-block min-w-full align-middle">
@@ -520,7 +536,7 @@ const Dashboard: React.FC = () => {
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-[180px] flex items-center justify-center text-gray-400">
-                    <div className="text-sm">Sin datos. Sube el CSV de {title} para ver la gráfica.</div>
+                    <div className="text-sm">Sin datos.</div>
                   </div>
                 )}
 
