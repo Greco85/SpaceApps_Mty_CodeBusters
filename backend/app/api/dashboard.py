@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import Dict, List, Any
+from ..api import analysis as analysis_api
+import asyncio
 from pydantic import BaseModel
 import json
 import os
@@ -15,10 +17,12 @@ class DashboardStats(BaseModel):
     total_exoplanets: int
     total_candidates: int
     total_false_positives: int
+    total_discoveries: int
     model_accuracy: float
     model_precision: float
     model_recall: float
     model_f1_score: float
+    predicted_counts: dict | None = None
 
 class MissionData(BaseModel):
     mission: str
@@ -26,6 +30,7 @@ class MissionData(BaseModel):
     candidates: int
     false_positives: int
     total_discoveries: int
+    predicted_counts: dict | None = None
 
 class DiscoveryTrend(BaseModel):
     year: str
@@ -55,6 +60,7 @@ async def get_dashboard_stats():
                 return pd.read_csv(io.StringIO(cleaned), sep=None, engine='python', on_bad_lines='skip')
 
         totals = {'exoplanet': 0, 'candidate': 0, 'false_positive': 0}
+        predicted_totals = {'exoplanet': 0, 'candidate': 0, 'false_positive': 0}
         missions = []
         for tel, fname in [('Kepler', 'kepler.csv'), ('K2', 'k2.csv'), ('TESS', 'tess.csv')]:
             csvpath = os.path.join(model_dir, fname)
@@ -108,16 +114,55 @@ async def get_dashboard_stats():
                 exo = int((mapped == 'CONFIRMED').sum())
                 cand = int((mapped == 'CANDIDATE').sum())
                 fp = int((mapped == 'FALSE POSITIVE').sum())
+            total_rows = int(len(df))
+            # compute predicted counts by running the same mapping+prediction used in analysis.upload
+            predicted = {'exoplanet': 0, 'candidate': 0, 'false_positive': 0}
+            try:
+                # iterate rows and map to features
+                for idx, row in df.iterrows():
+                    orig = row.to_dict()
+                    mapped = analysis_api.map_row_to_features(orig)
+                    # build a request-like dict to call predict_exoplanet
+                    try:
+                        # reuse the analysis.predict_exoplanet function (async)
+                        class _Req:
+                            pass
+                        req = _Req()
+                        req.orbital_period = float(mapped.get('orbital_period', 0.0))
+                        req.transit_duration = float(mapped.get('transit_duration', 0.0))
+                        req.transit_depth = float(mapped.get('transit_depth', 0.0))
+                        req.stellar_radius = float(mapped.get('stellar_radius', 1.0))
+                        req.stellar_mass = float(mapped.get('stellar_mass', 1.0)) if mapped.get('stellar_mass') is not None else 1.0
+                        req.stellar_temperature = float(mapped.get('stellar_temperature', 5778.0)) if mapped.get('stellar_temperature') is not None else 5778.0
+                        # call the async prediction (use asyncio run if outside event loop)
+                        try:
+                            pred_resp = asyncio.get_event_loop().run_until_complete(analysis_api.predict_exoplanet(req))
+                        except RuntimeError:
+                            # if already in event loop, use asyncio.run
+                            pred_resp = asyncio.run(analysis_api.predict_exoplanet(req))
+                        pred = getattr(pred_resp, 'prediction', None)
+                        if pred == 'exoplanet': predicted['exoplanet'] += 1
+                        elif pred == 'candidate': predicted['candidate'] += 1
+                        elif pred == 'false_positive': predicted['false_positive'] += 1
+                    except Exception:
+                        continue
+            except Exception:
+                predicted = {'exoplanet': 0, 'candidate': 0, 'false_positive': 0}
+
             missions.append({
                 'mission': tel,
                 'exoplanets': exo,
                 'candidates': cand,
                 'false_positives': fp,
-                'total_discoveries': exo + cand + fp
+                'total_discoveries': total_rows,
+                'predicted_counts': predicted
             })
             totals['exoplanet'] += exo
             totals['candidate'] += cand
             totals['false_positive'] += fp
+            # also accumulate total rows for overall discovery count
+            totals.setdefault('rows', 0)
+            totals['rows'] = totals.get('rows', 0) + total_rows
 
         # Load model artifacts and aggregate multiclase metrics
         metrics_list = []
@@ -142,14 +187,30 @@ async def get_dashboard_stats():
         else:
             acc = prec = rec = f1 = 0.0
 
+        # Build stats payload
         stats = {
             'total_exoplanets': int(totals['exoplanet']),
             'total_candidates': int(totals['candidate']),
             'total_false_positives': int(totals['false_positive']),
+            'total_discoveries': int(totals.get('rows', 0)),
             'model_accuracy': acc,
             'model_precision': prec,
             'model_recall': rec,
             'model_f1_score': f1
+        }
+
+        # If missions were augmented with predicted_counts (new field), sum them and include in stats
+        for m in missions:
+            pc = m.get('predicted_counts')
+            if isinstance(pc, dict):
+                predicted_totals['exoplanet'] += int(pc.get('exoplanet', 0))
+                predicted_totals['candidate'] += int(pc.get('candidate', 0))
+                predicted_totals['false_positive'] += int(pc.get('false_positive', 0))
+
+        stats['predicted_counts'] = {
+            'exoplanet': int(predicted_totals['exoplanet']),
+            'candidate': int(predicted_totals['candidate']),
+            'false_positive': int(predicted_totals['false_positive'])
         }
 
         return DashboardStats(**stats)
@@ -225,12 +286,39 @@ async def get_mission_data():
                 exo = int((mapped == 'CONFIRMED').sum())
                 cand = int((mapped == 'CANDIDATE').sum())
                 fp = int((mapped == 'FALSE POSITIVE').sum())
+            total_rows = int(len(df))
+            # compute predicted_counts for this mission using analysis.predict_exoplanet
+            predicted = {'exoplanet': 0, 'candidate': 0, 'false_positive': 0}
+            try:
+                for idx, row in df.iterrows():
+                    orig = row.to_dict()
+                    mapped = analysis_api.map_row_to_features(orig)
+                    try:
+                        req = analysis_api.AnalysisRequest(
+                            orbital_period=float(mapped.get('orbital_period', 0.0)),
+                            transit_duration=float(mapped.get('transit_duration', 0.0)),
+                            transit_depth=float(mapped.get('transit_depth', 0.0)),
+                            stellar_radius=float(mapped.get('stellar_radius', 1.0)),
+                            stellar_mass=float(mapped.get('stellar_mass', 1.0)) if mapped.get('stellar_mass') is not None else None,
+                            stellar_temperature=float(mapped.get('stellar_temperature', 5778.0)) if mapped.get('stellar_temperature') is not None else None
+                        )
+                        resp = await analysis_api.predict_exoplanet(req)
+                        pred = getattr(resp, 'prediction', None)
+                        if pred == 'exoplanet': predicted['exoplanet'] += 1
+                        elif pred == 'candidate': predicted['candidate'] += 1
+                        elif pred == 'false_positive': predicted['false_positive'] += 1
+                    except Exception:
+                        continue
+            except Exception:
+                predicted = {'exoplanet': 0, 'candidate': 0, 'false_positive': 0}
+
             missions.append({
                 'mission': tel,
                 'exoplanets': exo,
                 'candidates': cand,
                 'false_positives': fp,
-                'total_discoveries': exo + cand + fp
+                'total_discoveries': total_rows,
+                'predicted_counts': predicted
             })
 
         return [MissionData(**m) for m in missions]
@@ -273,7 +361,8 @@ async def get_discovery_trends():
                     year_col = c
                     break
             if year_col:
-                yrs = df[year_col].dropna().astype(int)
+                # Coerce to numeric first to avoid strange string/date parsing
+                yrs = pd.to_numeric(df[year_col], errors='coerce').dropna().astype(int)
                 for y in yrs:
                     by_year[y] = by_year.get(y, 0) + 1
             else:
@@ -288,8 +377,13 @@ async def get_discovery_trends():
                             break
                         except Exception:
                             continue
+        # Filter out implausible years that can appear from epoch parsing or bad data
+        current_year = pd.Timestamp.now().year
+        min_year = 1990
+        max_year = current_year + 1
+        filtered = {int(k): v for k, v in by_year.items() if isinstance(k, int) and (k >= min_year and k <= max_year)}
 
-        trends = [{'year': str(k), 'discoveries': int(v)} for k, v in sorted(by_year.items())]
+        trends = [{'year': str(k), 'discoveries': int(v)} for k, v in sorted(filtered.items())]
         return [DiscoveryTrend(**t) for t in trends]
 
     except Exception as e:

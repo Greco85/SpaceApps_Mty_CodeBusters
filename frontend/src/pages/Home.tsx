@@ -268,7 +268,7 @@ const Home: React.FC = () => {
                 <ul className="space-y-1 text-gray-300">
                   <li>• Python 3.9+</li>
                   <li>• FastAPI</li>
-                  <li>• SQLAlchemy</li>
+                  <li>• MongoDB</li>
                   <li>• Pydantic</li>
                   <li>• Uvicorn</li>
                 </ul>

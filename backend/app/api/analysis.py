@@ -434,11 +434,67 @@ async def analyze_uploaded_file(file: UploadFile = File(...), template_model: Op
                 elif pred == 'false_positive':
                     groups['false_positive'].append(r)
 
+            # compute CSV disposition counts (exhaustive counts from the uploaded file)
+            disposition_col = None
+            for c in df.columns:
+                lc = c.lower()
+                if 'disposition' in lc or 'disp' in lc:
+                    disposition_col = c
+                    break
+            if disposition_col is None:
+                csv_exo = csv_cand = csv_fp = 0
+            else:
+                vals = df[disposition_col].astype(str).str.upper().fillna('').str.strip()
+                def normalize_disp(s):
+                    if not s or s == 'NAN':
+                        return ''
+                    if s in ('CONFIRMED', 'CONFIRMED_PLANET', 'CP'):
+                        return 'CONFIRMED'
+                    if s in ('CANDIDATE', 'PC', 'PC?'):
+                        return 'CANDIDATE'
+                    if s in ('FALSE POSITIVE', 'FALSE_POSITIVE', 'FP'):
+                        return 'FALSE POSITIVE'
+                    if s == 'KP':
+                        return 'CONFIRMED'
+                    if 'FALSE' in s:
+                        return 'FALSE POSITIVE'
+                    if 'CANDID' in s or s == 'PC':
+                        return 'CANDIDATE'
+                    if 'CONFIR' in s or s == 'CP':
+                        return 'CONFIRMED'
+                    return s
+
+                mapped = vals.map(normalize_disp)
+                csv_exo = int((mapped == 'CONFIRMED').sum())
+                csv_cand = int((mapped == 'CANDIDATE').sum())
+                csv_fp = int((mapped == 'FALSE POSITIVE').sum())
+            total_rows = int(len(df))
+
+            # counts from any ground-truth mapping (true_label found during per-row processing)
+            true_counts = {'exoplanet': 0, 'candidate': 0, 'false_positive': 0}
+            for r in results:
+                tl = r.get('true_label')
+                if tl in true_counts:
+                    true_counts[tl] += 1
+
+            predicted_counts = {k: len(v) for k, v in groups.items()}
+
             # sanitize for JSON
             safe_results = make_json_safe(results)
             safe_groups = make_json_safe(groups)
 
-            return {"rows": safe_results, "groups": safe_groups}
+            return {
+                "rows": safe_results,
+                "groups": safe_groups,
+                "csv_counts": {
+                    "exoplanet": csv_exo,
+                    "candidate": csv_cand,
+                    "false_positive": csv_fp,
+                    "total_discoveries": total_rows
+                },
+                "true_label_counts": true_counts,
+                "predicted_counts": predicted_counts
+            }
 
         # Analizar primera fila (legacy behavior: analyze first row and return AnalysisResponse)
         row = df.iloc[0]
@@ -830,6 +886,29 @@ async def get_template_csv(model_name: str):
         return {"template_preview": df.head(10).fillna('').to_dict(orient='records')}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error leyendo plantilla CSV: {str(e)}")
+
+
+@router.get('/template/{model_name}/download')
+async def download_template_csv(model_name: str):
+    """Return the raw template CSV file as an attachment for the given model."""
+    info = MODEL_INFO.get(model_name.lower())
+    if not info:
+        raise HTTPException(status_code=404, detail="Modelo no encontrado")
+
+    path = locate_first_existing(info.get('csv_templates', []))
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="CSV de plantilla no encontrado para este modelo")
+
+    try:
+        from fastapi.responses import StreamingResponse
+        fh = open(path, 'rb')
+        filename = os.path.basename(path)
+        headers = {
+            'Content-Disposition': f'attachment; filename="{filename}"'
+        }
+        return StreamingResponse(fh, media_type='text/csv', headers=headers)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error sirviendo CSV: {str(e)}")
 
 
 @router.post('/_debug_preview')

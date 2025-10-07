@@ -57,6 +57,7 @@ const Exploration: React.FC = () => {
   const [uploadErrorDetail, setUploadErrorDetail] = useState<any | null>(null);
   const [batchGroupsExpl, setBatchGroupsExpl] = useState<{exoplanet: number, candidate: number, false_positive: number} | null>(null);
   const [batchAccuracyExpl, setBatchAccuracyExpl] = useState<number | null>(null);
+  const [uploadCountsFromPrediction, setUploadCountsFromPrediction] = useState(false);
 
   // Load exoplanet data from CSV
   useEffect(() => {
@@ -274,13 +275,25 @@ const Exploration: React.FC = () => {
           const json = await res.json();
       // If backend returned multiple rows (batch), compute a summary for the modal
       if (json.rows) {
-        // compute counts using groups if present, else count by prediction
+        // Prefer server-provided predicted counts when available (to match Dashboard graphs)
         let counts = { exoplanet: 0, candidate: 0, false_positive: 0 };
-        if (json.groups) {
+        if (json.predicted_counts) {
+          const p = json.predicted_counts;
+          setUploadCountsFromPrediction(true);
+          counts = {
+            exoplanet: typeof p.exoplanet === 'number' ? p.exoplanet : 0,
+            candidate: typeof p.candidate === 'number' ? p.candidate : 0,
+            false_positive: typeof p.false_positive === 'number' ? p.false_positive : 0
+          };
+          // show a small hint in the modal (we'll set a transient flag)
+          setUploadErrorDetail(null);
+        } else if (json.groups) {
+          setUploadCountsFromPrediction(false);
           counts.exoplanet = (json.groups.exoplanet || []).length;
           counts.candidate = (json.groups.candidate || []).length;
           counts.false_positive = (json.groups.false_positive || []).length;
         } else {
+          setUploadCountsFromPrediction(false);
           for (const r of json.rows) {
             if (r.prediction === 'exoplanet') counts.exoplanet++;
             else if (r.prediction === 'candidate') counts.candidate++;
@@ -711,15 +724,34 @@ const Exploration: React.FC = () => {
                 >
                   {models.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <button
-                  onClick={async () => {
-                    await fetchTemplate();
-                    setEnforceTemplate(prev => !prev);
-                  }}
-                  className={`px-3 py-2 ${enforceTemplate ? 'bg-green-600' : 'bg-blue-600'} text-white rounded`}
-                >
-                  Plantilla
-                </button>
+                <div>
+                  <button
+                    onClick={async () => {
+                      if (!selectedModel) return alert('Selecciona un modelo primero');
+                      try {
+                        const res = await fetch(`/api/v1/analysis/template/${selectedModel}/download`);
+                        if (!res.ok) {
+                          const txt = await res.text();
+                          throw new Error(txt || `HTTP ${res.status}`);
+                        }
+                        const blob = await res.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${selectedModel}_template.csv`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                      } catch (e: any) {
+                        alert('No se pudo descargar la plantilla: ' + (e?.message || String(e)));
+                      }
+                    }}
+                    className="px-3 py-2 bg-indigo-600 text-white rounded"
+                  >
+                    Descargar plantilla
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3 flex space-x-2">
@@ -731,21 +763,14 @@ const Exploration: React.FC = () => {
                 </button>
               </div>
 
-              {templatePreview && (
-                <div className="mt-4 p-2 bg-gray-900 rounded max-h-40 overflow-auto">
-                  <table className="w-full text-xs">
-                    <tbody>
-                      {templatePreview.map((r, i) => (
-                        <tr key={i} className="border-b border-gray-800"><td className="px-2 py-1">{String(Object.values(r)[0])}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              {/* templatePreview intentionally hidden in Exploration modal per request */}
 
               {(batchGroupsExpl || analysisResult) && (
                 <div className="mt-4 p-4 bg-space-blue/20 rounded-lg">
                   <h4 className="font-semibold mb-2">Resultado:</h4>
+                  {uploadCountsFromPrediction && (
+                    <div className="text-sm text-indigo-300 mb-2">Números basados en la predicción del modelo</div>
+                  )}
                   {batchGroupsExpl ? (
                     <div className="grid grid-cols-2 gap-2 text-sm text-gray-100">
                       <div className="font-medium">Exoplanetas</div>

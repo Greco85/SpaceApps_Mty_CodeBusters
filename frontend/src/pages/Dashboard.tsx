@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Planet3D from '../components/Planet3D.tsx';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Globe, Star, Target, AlertTriangle } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
@@ -9,15 +9,18 @@ const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<any | null>(null);
   const [missions, setMissions] = useState<any[] | null>(null);
   const [trends, setTrends] = useState<any[] | null>(null);
+  const [missionTrends, setMissionTrends] = useState<Record<string, any[]> | null>({});
   const [selectedTrendYear, setSelectedTrendYear] = useState<number | null>(null);
   const [performance, setPerformance] = useState<any | null>(null);
   const [recent, setRecent] = useState<any[] | null>(null);
-  const [batchResults, setBatchResults] = useState<Array<{planet: string, result: string}> | null>(null);
+  const [batchResults, setBatchResults] = useState<Array<{planet: string, result: string, confidence?: number | null, true_label?: string | null, raw?: any}> | null>(null);
+  const [filterCategory, setFilterCategory] = useState<string | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [batchGroups, setBatchGroups] = useState<{exoplanet: number, candidate: number, false_positive: number} | null>(null);
   const [batchAccuracy, setBatchAccuracy] = useState<number | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [enforceTemplate, setEnforceTemplate] = useState<boolean>(true);
+  // removed enforceTemplate toggle (button) per UX request
 
   useEffect(() => {
     let mounted = true;
@@ -179,7 +182,7 @@ const Dashboard: React.FC = () => {
                   return;
                 }
                 if (!selectedModel) {
-                  if (!window.confirm('No seleccionaste un modelo. Deseas continuar sin plantilla?')) {
+                  if (!window.confirm('No seleccionaste un modelo. Deseas continuar?')) {
                     return;
                   }
                 }
@@ -187,7 +190,7 @@ const Dashboard: React.FC = () => {
                 const fd = new FormData();
                 fd.append('file', f);
                 if (selectedModel) fd.append('model', selectedModel);
-                if (enforceTemplate && selectedModel) fd.append('template_model', selectedModel);
+                // template enforcement toggle removed; always send model if selected
                 try {
                   const res = await fetch('/api/v1/analysis/upload', { method: 'POST', body: fd });
                   if (!res.ok) {
@@ -200,47 +203,95 @@ const Dashboard: React.FC = () => {
                   let flat: Array<{planet: string, result: string}> = [];
                   if (json.rows) {
                     for (const r of json.rows) {
-                      flat.push({ planet: r.planet || (r.input && (r.input.pl_name || r.input.name)) || 'unknown', result: r.prediction || 'error' });
+                      flat.push({ 
+                        planet: r.planet || (r.input && (r.input.pl_name || r.input.name)) || 'unknown', 
+                        result: r.prediction || 'error',
+                        confidence: typeof r.confidence === 'number' ? r.confidence : null,
+                        true_label: r.true_label || null,
+                        raw: r.input || null
+                      } as any);
                     }
-                    // Use groups if provided by backend; otherwise compute counts
-                    if (json.groups) {
+                    // Prefer server-provided CSV counts (ground-truth) so numbers match the mission graphs and Exploration analysis
+                    // Prefer server-provided predicted counts so the top numbers reflect model predictions
+                    if (json.predicted_counts) {
+                      const p = json.predicted_counts;
+                      const counts = {
+                        exoplanet: typeof p.exoplanet === 'number' ? p.exoplanet : 0,
+                        candidate: typeof p.candidate === 'number' ? p.candidate : 0,
+                        false_positive: typeof p.false_positive === 'number' ? p.false_positive : 0
+                      };
+                      setBatchGroups(counts);
+                    } else if (json.groups) {
                       const counts = {
                         exoplanet: (json.groups.exoplanet || []).length,
                         candidate: (json.groups.candidate || []).length,
                         false_positive: (json.groups.false_positive || []).length
                       };
                       setBatchGroups(counts);
-                      // compute average model confidence across rows (preferred for 'Confianza')
-                      let sumConf = 0, confCount = 0;
-                      for (const g of ['exoplanet','candidate','false_positive']) {
-                        const arr = json.groups[g] || [];
-                        for (const item of arr) {
-                          if (typeof item.confidence === 'number' && isFinite(item.confidence)) {
-                            sumConf += item.confidence;
-                            confCount++;
-                          }
-                        }
-                      }
-                      const avgConfidence = confCount > 0 ? (sumConf / confCount) : null;
-                      setBatchAccuracy(avgConfidence);
                     } else {
+                      // Final fallback: compute counts from predicted rows
                       const counts = { exoplanet: 0, candidate: 0, false_positive: 0 };
-                      let correct = 0, totalWithLabel = 0;
                       for (const r of flat) {
                         if (r.result === 'exoplanet') counts.exoplanet++;
                         else if (r.result === 'candidate') counts.candidate++;
                         else if (r.result === 'false_positive') counts.false_positive++;
                       }
                       setBatchGroups(counts);
-                      setBatchAccuracy(null);
                     }
-                  } else if (json.prediction) {
+
+                    // compute average model confidence across rows if available
+                    let sumConf = 0, confCount = 0;
+                    if (json.rows) {
+                      for (const rowItem of json.rows) {
+                        if (typeof rowItem.confidence === 'number' && isFinite(rowItem.confidence)) {
+                          sumConf += rowItem.confidence;
+                          confCount++;
+                        }
+                      }
+                    }
+                    const avgConfidence = confCount > 0 ? (sumConf / confCount) : null;
+                    setBatchAccuracy(avgConfidence);
+                    } else if (json.prediction) {
                     // single-row legacy response
                     flat.push({ planet: 'row_1', result: json.prediction });
                     setBatchGroups({ exoplanet: json.prediction === 'exoplanet' ? 1 : 0, candidate: json.prediction === 'candidate' ? 1 : 0, false_positive: json.prediction === 'false_positive' ? 1 : 0 });
                     setBatchAccuracy(null);
                   }
                   setBatchResults(flat);
+                    // After a successful upload, try to detect mission from filename and refresh mission/stats/trends
+                    try {
+                      const fName = f && f.name ? String(f.name).toLowerCase() : '';
+                      let missionKey: string | null = null;
+                      if (fName.includes('kepler')) missionKey = 'kepler';
+                      else if (fName.includes('k2')) missionKey = 'k2';
+                      else if (fName.includes('tess')) missionKey = 'tess';
+
+                      // Refresh missions and stats so numbers agree across the dashboard
+                      try {
+                        const [mRes2, sRes2] = await Promise.all([
+                          fetch('/api/v1/dashboard/missions'),
+                          fetch('/api/v1/dashboard/stats')
+                        ]);
+                        if (mRes2.ok) setMissions(await mRes2.json());
+                        if (sRes2.ok) setStats(await sRes2.json());
+                      } catch (e) {
+                        // ignore refresh errors
+                      }
+
+                      if (missionKey) {
+                        try {
+                          const tRes = await fetch(`/api/v1/dashboard/trends?mission=${missionKey}`);
+                          if (tRes.ok) {
+                            const tJson = await tRes.json();
+                            setMissionTrends(prev => ({ ...(prev || {}), [missionKey!]: tJson }));
+                          }
+                        } catch (e) {
+                          // ignore
+                        }
+                      }
+                    } catch (e) {
+                      // non-critical
+                    }
                 } catch (err: any) {
                   alert('Error subiendo archivo: ' + String(err));
                 }
@@ -248,9 +299,7 @@ const Dashboard: React.FC = () => {
             >
               Subir y Analizar
             </button>
-            <button className={`px-3 py-2 ${enforceTemplate ? 'bg-green-600' : 'bg-gray-600'} text-white rounded`} onClick={() => setEnforceTemplate(prev => !prev)} title="Enforce template for uploads">
-              Plantilla {enforceTemplate ? 'ON' : 'OFF'}
-            </button>
+            {/* plantilla toggle removed per request */}
           </div>
 
           {/* Resultado summary (four rows) */}
@@ -274,29 +323,64 @@ const Dashboard: React.FC = () => {
           </div>
 
           {/* Results table */}
-          <div className="mt-4">
+                <div className="mt-4">
+                  {/* Interactive filters: choose which column to filter (prediction vs ground-truth) and select category */}
+                  <div className="flex items-center space-x-3 mb-3">
+                      <div className="text-sm text-gray-300">Filtrar por: </div>
+                    <div className="ml-4 inline-flex items-center space-x-2">
+                      {['exoplanet','candidate','false_positive'].map(cat => (
+                        <button key={cat} className={`px-3 py-1 rounded text-sm ${filterCategory===cat ? 'bg-green-700 text-white' : 'bg-black/10 text-gray-300'}`} onClick={() => setFilterCategory(prev => prev === cat ? null : cat)}>
+                          {cat === 'exoplanet' ? 'Exoplaneta' : (cat === 'candidate' ? 'Candidato' : 'Falso Positivo')}
+                        </button>
+                      ))}
+                      <button className="px-3 py-1 rounded text-sm bg-gray-700 text-white" onClick={() => { setFilterCategory(null); }}>Limpiar</button>
+                    </div>
+                  </div>
             <div className="overflow-x-auto">
               <div className="inline-block min-w-full align-middle">
                 <div className="overflow-y-auto max-h-80 border border-space-blue/30 rounded">
                    <table className="min-w-full divide-y divide-gray-700">
                     <thead className="bg-space-dark/60 sticky top-0">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-300">Planeta</th>
-                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-300">Resultado</th>
-                      </tr>
+                        <tr>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-300">#</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-300">Planeta</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-300">Resultado</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-300">Confianza</th>
+                        </tr>
                     </thead>
                     <tbody className="bg-transparent divide-y divide-gray-700">
                       {batchResults && batchResults.length > 0 ? (
-                        batchResults.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-space-blue/10">
-                            <td className="px-4 py-2 text-sm text-gray-200">{row.planet}</td>
-                            <td className={`px-4 py-2 text-sm ${row.result === 'exoplanet' ? 'text-green-400' : (row.result === 'candidate' ? 'text-yellow-300' : 'text-red-400')}`}>
-                              {row.result}
-                            </td>
-                          </tr>
-                        ))
+                        batchResults
+                          .filter((row) => {
+                            if (!filterCategory) return true;
+                            const key = (row.result && String(row.result)) || '';
+                            return String(key) === filterCategory;
+                          })
+                          .map((row, idx) => {
+                            const uid = `${row.planet}-${idx}`;
+                            const isExpanded = !!expandedRows[uid];
+                            return (
+                              <React.Fragment key={uid}>
+                                <tr className={`hover:bg-space-blue/10 ${isExpanded ? 'bg-space-blue/5' : ''}`} onClick={() => setExpandedRows(prev => ({ ...prev, [uid]: !prev[uid] }))} role="button">
+                                  <td className="px-4 py-2 text-sm text-gray-400">{idx + 1}</td>
+                                  <td className="px-4 py-2 text-sm text-gray-200">{row.planet}</td>
+                                  <td className={`px-4 py-2 text-sm ${row.result === 'exoplanet' ? 'text-green-400' : (row.result === 'candidate' ? 'text-yellow-300' : 'text-red-400')}`}>
+                                    {row.result}
+                                  </td>
+                                  <td className="px-4 py-2 text-sm text-right text-gray-300">{row.confidence !== null && row.confidence !== undefined ? formatConfidence(row.confidence) : '-'}</td>
+                                </tr>
+                                {isExpanded ? (
+                                  <tr className="bg-space-dark/60">
+                                    <td colSpan={4} className="px-4 py-2 text-xs text-gray-300">
+                                      <pre className="whitespace-pre-wrap">{JSON.stringify(row.raw || row, null, 2)}</pre>
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </React.Fragment>
+                            );
+                          })
                       ) : (
-                        <tr><td colSpan={2} className="px-4 py-4 text-sm text-gray-400">No hay resultados aún. Sube un CSV.</td></tr>
+                        <tr><td colSpan={4} className="px-4 py-4 text-sm text-gray-400">No hay resultados aún. Sube un CSV.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -347,61 +431,9 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid lg:grid-cols-2 gap-8 mb-8">
-        {/* Model Performance */}
-        <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6">
-          <h3 className="text-xl font-semibold mb-4">Rendimiento del Modelo</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={performance ? [
-                { metric: 'Precisión', value: (performance.accuracy || 0) * 100 },
-                { metric: 'Precision', value: (performance.precision || 0) * 100 },
-                { metric: 'Recall', value: (performance.recall || 0) * 100 },
-                { metric: 'F1-Score', value: (performance.f1_score || 0) * 100 }
-              ] : []}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="metric" stroke="#9CA3AF" />
-              <YAxis stroke="#9CA3AF" />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: '#1E3A8A', 
-                  border: '1px solid #3B82F6',
-                  borderRadius: '8px'
-                }} 
-              />
-              <Bar dataKey="value" fill="#F97316" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Distribución de Clasificaciones eliminada (se duplica con Comparación por Misión) */}
-      </div>
-
-      {/* Mission Comparison */}
-      <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6 mb-8">
-        <h3 className="text-xl font-semibold mb-4">Comparación por Misión</h3>
-        <ResponsiveContainer width="100%" height={400}>
-          <BarChart data={missions || []}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="name" stroke="#9CA3AF" />
-            <YAxis stroke="#9CA3AF" />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: '#1E3A8A', 
-                border: '1px solid #3B82F6',
-                borderRadius: '8px'
-              }} 
-            />
-            <Bar dataKey="exoplanets" stackId="a" fill="#10B981" name="Exoplanetas" />
-            <Bar dataKey="candidates" stackId="a" fill="#FDE047" name="Candidatos" />
-            <Bar dataKey="false_positives" stackId="a" fill="#EF4444" name="Falsos Positivos" />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
       {/* Discovery Trend */}
         <div className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-6">
-        <h3 className="text-xl font-semibold mb-4">Tendencia de Descubrimientos</h3>
+        <h3 className="text-xl font-semibold mb-4">Tendencia de Descubrimientos (k2)</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={trends || []}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -426,6 +458,74 @@ const Dashboard: React.FC = () => {
             />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      <div style={{ height: 32 }} />
+
+      {/* Mission Comparison (dynamic per-upload): show 3 slots for kepler/k2/tess; charts load when CSV is uploaded and analyzed */}
+      <div className="mb-8">
+        <h3 className="text-xl font-semibold mb-4">Comparación por Misión</h3>
+        <div className="grid lg:grid-cols-3 gap-4">
+          {['kepler','k2','tess'].map((m) => {
+            const title = m === 'kepler' ? 'Kepler' : (m === 'k2' ? 'K2' : 'TESS');
+            const info = missions ? missions.find((mm:any) => (mm.mission || '').toLowerCase() === (m === 'k2' ? 'k2' : m)) : null;
+            const hasData = missionTrends && (missionTrends as any)[m] && (missionTrends as any)[m].length > 0;
+            const exoplanets = hasData ? (info ? info.exoplanets : 0) : '-';
+            const candidates = hasData ? (info ? info.candidates : 0) : '-';
+            const falsePos = hasData ? (info ? info.false_positives : 0) : '-';
+
+            const dataCounts = hasData ? [
+              { category: 'Exoplanetas', value: exoplanets },
+              { category: 'Candidatos', value: candidates },
+              { category: 'Falsos Positivos', value: falsePos }
+            ] : [];
+
+            const colors = ['#10B981', '#FDE047', '#EF4444'];
+
+            return (
+              <div key={m} className="bg-space-dark/50 backdrop-blur-sm border border-space-blue/30 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-lg font-semibold">{title}</h4>
+                </div>
+
+                {hasData ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={dataCounts} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="category" stroke="#9CA3AF" />
+                      <YAxis stroke="#9CA3AF" />
+                      <Tooltip contentStyle={{ backgroundColor: '#1E3A8A', border: '1px solid #3B82F6', borderRadius: '8px' }} />
+                      <Bar dataKey="value">
+                        {dataCounts.map((entry, idx) => (
+                          <Cell key={`cell-${idx}`} fill={colors[idx % colors.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[180px] flex items-center justify-center text-gray-400">
+                    <div className="text-sm">Sin datos. Sube el CSV de {title} para ver la gráfica.</div>
+                  </div>
+                )}
+
+                <div className="mt-3 grid grid-cols-3 gap-2 text-sm text-gray-300">
+                  <div className="text-center">
+                    <div className="text-xs">Exoplanetas</div>
+                    <div className="text-green-400 font-semibold">{exoplanets}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs">Candidatos</div>
+                    <div className="text-yellow-300 font-semibold">{candidates}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs">Falsos Positivos</div>
+                    <div className="text-red-400 font-semibold">{falsePos}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Add small whitespace at the end of the page */}
