@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # Gemini / Generative AI
     gemini_api_key: Optional[str] = "AIzaSyANxRWtZKccr4BmCO-TBFcEbmCnykiweSM"
     gemini_api_url: Optional[str] = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    gemini_api_key: Optional[str] = "AIzaSyANxRWtZKccr4BmCO-TBFcEbmCnykiweSM"
+    gemini_api_url: Optional[str] = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     # If GEMINI_API_URL is not provided, GEMINI_MODEL can be used to build a default v1beta URL
     gemini_model: Optional[str] = None
     

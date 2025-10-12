@@ -42,6 +42,8 @@ async def send_message(request: ChatRequest):
     # Prefer settings from app.core.config (reads .env) but allow environment override
     gemini_url = os.environ.get("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent") or settings.gemini_api_url
     gemini_key = os.environ.get("AIzaSyANxRWtZKccr4BmCO-TBFcEbmCnykiweSM") or settings.gemini_api_key
+    gemini_url = os.environ.get("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent") or settings.gemini_api_url
+    gemini_key = os.environ.get("AIzaSyANxRWtZKccr4BmCO-TBFcEbmCnykiweSM") or settings.gemini_api_key
 
     # Clean values: remove surrounding whitespace and matching quotes if present
     def _clean_val(v: Optional[str]) -> Optional[str]:
